@@ -435,7 +435,7 @@ if (import.meta.main) {
   await chmod(store.root, 0o700).catch(() => {})
   const runner = new Runner(store)
   await runner.recover()
-  console.log(`claude-bots runner ${process.pid} watching ${ROOT}`)
+  console.log(`Office Hours runner ${process.pid} watching ${ROOT}`)
   void runner.refreshConnectors().catch(() => {})
   const info = await webInfo(store)
   try {

@@ -27,9 +27,9 @@ import type { Snapshot } from '../types'
 
 const PANE = 'bots'
 const EMPTY: Snapshot = { bots: [], tasks: [], approvals: [], runner: 'stopped', paused: false, usage: '', updatedAt: '' }
-const snapshot = atom({ plugin: 'naaico-bot-crew', key: 'snapshot' } as const, EMPTY)
+const snapshot = atom({ plugin: 'office-hours', key: 'snapshot' } as const, EMPTY)
 
-const HELP = `Bot crew commands:
+const HELP = `Office Hours commands:
   @Bot <request>                 give a bot a task (add [opus|sonnet|haiku|fable] after the name to change its model for this task)
   /bot assign [Bot] <request>    same; with no bot, the Manager takes it
   /bot list                      your bots, their models and what they are doing
@@ -329,7 +329,7 @@ async function decideAndRefresh($: any, id: string, allowed: boolean, always: bo
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    await $.command.register({ name: 'bot', description: 'Your bot crew: assign tasks, manage bots and models, approve actions' })
+    await $.command.register({ name: 'bot', description: 'Office Hours: assign tasks to your bots, manage bots and models, approve actions' })
     void $.ui.open({ id: PANE, title: 'Bots' })
     cancelTimer?.()
     cancelTimer = $.clock.every(3000, () => void refresh($).catch(() => {}))

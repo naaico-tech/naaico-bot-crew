@@ -35,6 +35,6 @@ export type Snapshot = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'naaico-bot-crew': { snapshot: Snapshot }
+    'office-hours': { snapshot: Snapshot }
   }
 }

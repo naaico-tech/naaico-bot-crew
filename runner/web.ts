@@ -306,12 +306,12 @@ export function startWeb(s: Store, info: WebInfo, host = '127.0.0.1'): Promise<S
       if (hostHeader !== `127.0.0.1:${port}` && hostHeader !== `localhost:${port}`) throw new HttpError(403, 'Open the crew from 127.0.0.1 or localhost.')
       const url = new URL(req.url ?? '/', `http://${hostHeader}`)
 
-      const asset = ['/hognt.css', '/markdown.js'].includes(url.pathname) ? url.pathname.slice(1) : url.pathname.match(/^\/fonts\/([a-z0-9-]+\.woff2)$/)?.[1]
+      const asset = ['/hognt.css', '/markdown.js', '/favicon.svg'].includes(url.pathname) ? url.pathname.slice(1) : url.pathname.match(/^\/fonts\/([a-z0-9-]+\.woff2)$/)?.[1]
       if (asset) {
         const isFont = asset.endsWith('.woff2')
         const data = await readFile(join(RUNNER_DIR, 'web', isFont ? 'fonts' : '', asset)).catch(() => undefined)
         if (!data) throw new HttpError(404, 'Not found.')
-        const type = isFont ? 'font/woff2' : asset.endsWith('.js') ? 'text/javascript; charset=utf-8' : 'text/css; charset=utf-8'
+        const type = isFont ? 'font/woff2' : asset.endsWith('.js') ? 'text/javascript; charset=utf-8' : asset.endsWith('.svg') ? 'image/svg+xml' : 'text/css; charset=utf-8'
         res.writeHead(200, { 'content-type': type, 'cache-control': isFont ? 'max-age=3600' : 'no-store' })
         return res.end(data)
       }
@@ -325,7 +325,7 @@ export function startWeb(s: Store, info: WebInfo, host = '127.0.0.1'): Promise<S
       if (url.pathname === '/' || url.pathname === '/index.html') {
         if (!authed) {
           res.writeHead(401, { 'content-type': 'text/html; charset=utf-8' })
-          return res.end('<!doctype html><meta charset="utf-8"><title>Bot crew</title><body style="font:16px system-ui;padding:40px;max-width:560px">Open the crew with the link from <code>/bot web</code> in Claude Code, or from the runner log.</body>')
+          return res.end('<!doctype html><meta charset="utf-8"><title>Office Hours</title><body style="font:16px system-ui;padding:40px;max-width:560px">Open Office Hours with the link from <code>/bot web</code> in Claude Code, or from the runner log.</body>')
         }
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'content-security-policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'" })
         return res.end(await readFile(join(RUNNER_DIR, 'web', 'index.html'), 'utf8'))

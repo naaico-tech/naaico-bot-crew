@@ -1,1 +1,0 @@
-{"name": "naaico-bot-crew", "version": "0.1.0", "description": "NAAICO Bot Crew: custom Claude bots with their own models that hand over tasks, run by a background runner.", "types": "./types/index.d.ts"}

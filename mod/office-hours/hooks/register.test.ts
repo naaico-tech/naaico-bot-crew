@@ -57,7 +57,7 @@ const run = ($: any, args: string) =>
 const tasks = (files: Map<string, string>) =>
   [...files.entries()].filter(([k]) => k.startsWith(`${ROOT}/tasks/`)).map(([, v]) => JSON.parse(v))
 
-describe('naaico-bot-crew', () => {
+describe('office-hours', () => {
   test('creates a custom bot with its own model', async ($, on) => {
     const files = fakeFs(on)
     const r = await run($, 'new Recruiter | opus | Screen inbound candidates | Gmail, Calendar | manager')

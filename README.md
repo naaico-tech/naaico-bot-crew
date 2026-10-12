@@ -1,8 +1,10 @@
-<p align="center"><img src="docs/naaico-mark.svg" alt="NAAICO" width="300"></p>
+<p align="center"><img src="docs/office-hours-logo.svg" alt="Office Hours logo: office buildings at dusk with a few windows lit" width="128"></p>
 
-<h1 align="center">NAAICO Bot Crew</h1>
+<h1 align="center">Office Hours</h1>
 
-<p align="center">A crew of AI teammates for <a href="https://docs.claude.com/en/docs/claude-code">Claude Code</a>. You design each bot (its job, model, effort and connectors) and talk to it in a chat. Bots hand work to each other through a Manager and ask before they touch anything outside your machine. A background runner does the work, so it keeps going when Claude Code is closed.</p>
+<p align="center"><b>A crew of Claude bots that works alongside you while your machine is on.</b><br>By <a href="https://naaico.com">NAAICO</a></p>
+
+<p align="center">Office Hours is a crew of AI teammates for <a href="https://docs.claude.com/en/docs/claude-code">Claude Code</a>. You design each bot (its job, model, effort and connectors) and talk to it in a chat. Bots hand work to each other through a Manager and ask before they touch anything outside your machine. A runner on your Mac does the work, so it keeps going when Claude Code is closed, for as long as your machine is on and the runner is running.</p>
 
 ![Chatting with the Manager: a status update in Markdown, a proposal to create a new bot with Apply and Discard, and a finished task answered in the chat](docs/screenshots/chat.png)
 
@@ -46,15 +48,15 @@ The app follows your system's light or dark setting (Dawn and Neon), and the NAA
 | Bot runs | `claude -p` | The official Claude Code CLI, signed in as you, with the bot's model and effort and only its own connectors |
 | Crew tools | `runner/mcp.ts` | `handoff`, `assign_task`, `complete_task`, `block_task`, `remember`, `create_task`, `propose_change`, and the approval check every tool call goes through |
 | Browser app | `runner/web/` · `http://127.0.0.1:4545` | Chat, bot builder, board, approvals, routines, settings |
-| Claude Code mod | `mod/naaico-bot-crew/` | `/bot` commands, `@Bot` mentions, the Bots pane, and Claude Code's own usage readings |
+| Claude Code mod | `mod/office-hours/` | `/bot` commands, `@Bot` mentions, the Bots pane, and Claude Code's own usage readings |
 
 ## Get started
 
 You need **Node 24+** and **Claude Code**, signed in (`claude auth login`).
 
 ```bash
-git clone https://github.com/naaico-tech/naaico-bot-crew.git
-cd naaico-bot-crew
+git clone https://github.com/naaico-tech/office-hours.git
+cd office-hours
 npm run seed      # creates ~/.claude/bots with Manager, Inbox, Calendar and Bug fixer
 npm run runner    # starts the runner; it prints the browser app link
 ```
@@ -64,7 +66,7 @@ Open the printed link (`http://127.0.0.1:4545/?token=…`). It signs you in once
 To use the crew from Claude Code as well, load the mod:
 
 ```bash
-claude --plugin-dir ./mod/naaico-bot-crew
+claude --plugin-dir ./mod/office-hours
 ```
 
 Then `/bot web` prints the browser link and `/bot help` lists the commands.
@@ -132,7 +134,7 @@ Work in a new branch, run the tests before and after your change, and open a PR 
 
 ```bash
 npm test          # runner, crew tools, browser app and Markdown (node --test)
-claude plugin validate mod/naaico-bot-crew && claude plugin test mod/naaico-bot-crew
+claude plugin validate mod/office-hours && claude plugin test mod/office-hours
 ```
 
 The tests drive the real runner and crew tools against a stand-in `claude`, so they need no account and cost nothing.

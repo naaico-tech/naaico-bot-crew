@@ -1,0 +1,1 @@
+{"name": "office-hours", "version": "0.1.0", "description": "Office Hours: custom Claude bots with their own models that hand over tasks and work alongside you while your machine is on.", "types": "./types/index.d.ts"}

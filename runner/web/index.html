@@ -3,10 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NAAICO Bot Crew</title>
+<title>Office Hours</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="stylesheet" href="/hognt.css">
 <style>
-/* Bot Crew on HedgeOS/NT v2: one NT application window on grid paper.
+/* Office Hours on HedgeOS/NT v2: one NT application window on grid paper.
    Shell = titlebar · menubar · (crew panel | client area) · statusbar.
    Accent law per view: blue acts (one primary action), red speaks (eyebrows, the approvals count),
    yellow measures (spend and "thinking" meters only). Bevel = pressable, hard shadow = floating. */
@@ -35,6 +36,7 @@ button { font: inherit; }
 @keyframes snap { from { visibility: hidden; } to { visibility: visible; } }
 .splash-note { font-family: var(--hn-font-ui); font-size: 12px; color: var(--hn-mute); min-height: 1.2em; margin-top: -28px; }
 @media (prefers-reduced-motion: reduce) { .naaico > b { animation: none; } }
+.app-icon { width: 18px; height: 18px; image-rendering: pixelated; flex: 0 0 auto; }
 .hn-titlebar-btn { width: auto; min-width: 22px; padding: 0 6px; }
 .menubar { display: flex; align-items: center; gap: 2px; padding: 3px 2px; border-bottom: 1px solid var(--hn-bevel-shadow); }
 .menu { font-family: var(--hn-font-ui); font-size: 13px; color: var(--hn-ink); background: none; border: 0; padding: 4px 10px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
@@ -191,13 +193,14 @@ dialog.hn-window::backdrop { background: rgba(31, 35, 46, .35); }
 </style>
 </head>
 <body>
-<div class="splash" id="splash" role="status" aria-label="Loading NAAICO Bot Crew">
+<div class="splash" id="splash" role="status" aria-label="Loading Office Hours">
   <a class="naaico" href="https://naaico.com" target="_blank" rel="noopener noreferrer" aria-label="NAAICO"><b>N</b><b>A</b><b>A</b><b>I</b><b>C</b><b>O</b></a>
   <div class="splash-note" id="splashNote"></div>
 </div>
 <div class="app hn-window">
   <div class="hn-titlebar">
-    <span class="hn-title-text" id="title">NAAICO Bot Crew</span>
+    <img class="app-icon" src="/favicon.svg" alt="" width="18" height="18">
+    <span class="hn-title-text" id="title">Office Hours</span>
     <button class="hn-titlebar-btn" id="mode" type="button" title="Switch Dawn / Neon">Neon</button>
   </div>
   <nav class="menubar" id="menu" aria-label="Views">
@@ -229,7 +232,7 @@ dialog.hn-window::backdrop { background: rgba(31, 35, 46, .35); }
   <div class="hn-titlebar"><span class="hn-title-text" id="dlgTitle"></span><button class="hn-titlebar-btn" type="button" id="dlgClose" aria-label="Close">×</button></div>
   <form class="dlg-body" id="dlgBody" method="dialog"></form>
 </dialog>
-<div class="toast hn-window" id="toast" role="status" hidden><div class="hn-titlebar"><span class="hn-title-text">NAAICO Bot Crew</span></div><div class="body" id="toastText"></div></div>
+<div class="toast hn-window" id="toast" role="status" hidden><div class="hn-titlebar"><span class="hn-title-text">Office Hours</span></div><div class="body" id="toastText"></div></div>
 
 <script type="module">
 import { md } from '/markdown.js'
@@ -282,7 +285,7 @@ function renderShell() {
   const mgr = st.config.managerSlug
   const bots = [...st.bots].sort((a, b) => (a.slug === mgr ? -1 : b.slug === mgr ? 1 : a.name.localeCompare(b.name)))
   $('crewCount').textContent = st.bots.length
-  $('title').textContent = `NAAICO Bot Crew — ${st.bots.length} bots`
+  $('title').textContent = `Office Hours — ${st.bots.length} bots`
   $('bots').innerHTML = bots.map(b => `
     <button type="button" class="mate" data-bot="${esc(b.slug)}" aria-current="${b.slug === S.bot && S.view === 'chat'}">
       ${tile(b)}

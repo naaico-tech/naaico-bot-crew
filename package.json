@@ -1,8 +1,8 @@
 {
-  "name": "naaico-bot-crew",
+  "name": "office-hours",
   "version": "0.1.0",
   "private": true,
-  "description": "NAAICO Bot Crew: a crew of AI teammates for Claude Code, with custom bots, handovers through a Manager, approvals, routines and a background runner.",
+  "description": "Office Hours: a crew of AI teammates for Claude Code that works alongside you, with custom bots, handovers through a Manager, approvals, routines and plan-aware usage limits.",
   "type": "module",
   "engines": {
     "node": ">=24"
@@ -15,6 +15,6 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/naaico-tech/naaico-bot-crew.git"
+    "url": "https://github.com/naaico-tech/office-hours.git"
   }
 }
