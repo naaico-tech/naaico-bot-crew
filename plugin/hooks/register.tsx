@@ -18,6 +18,7 @@ import {
   splitList,
   titleFrom,
   MODEL_LABELS,
+  nextRun,
   Store,
   TERMINAL,
   windowsFromSession,
@@ -385,7 +386,16 @@ async function routineCommand(s: Store, bots: Bot[], rest: string, now: Date): P
   const [verb = 'list', id = ''] = rest.split(/\s+/)
   const list = await s.routines()
   if (verb === 'list') {
-    return list.length ? list.map(r => `${r.id}  ${r.paused ? 'paused ' : ''}${r.schedule}  ${r.bot}: ${r.title}`).join('\n') : 'No routines yet.'
+    return list.length
+      ? list
+          .map(r => {
+            const sched = parseSchedule(r.schedule)
+            const next = sched && !r.paused ? nextRun(sched, r.lastRunAt ?? r.createdAt, now) : undefined
+            const at = r.paused ? 'paused' : next ? `next ${next.getTime() <= now.getTime() ? 'now' : next.toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}` : ''
+            return `${r.id}  ${r.schedule}  ${at}  ${r.bot}: ${r.title}`
+          })
+          .join('\n')
+      : 'No routines yet.'
   }
   if (verb === 'add') {
     const [who, schedule, title, prompt] = rest.slice(3).split('|').map(x => x.trim())

@@ -21,6 +21,7 @@ import {
   parseBotFile,
   parseMention,
   parseSchedule,
+  nextRun,
   ruleFor,
   cacheShare,
   chatSystemPrompt,
@@ -93,6 +94,18 @@ describe('routines', () => {
     assert.equal(isDue(sched, at(7, 0).toISOString(), at(8, 31)), true)
     assert.equal(isDue(sched, at(8, 31).toISOString(), at(8, 40)), false)
     assert.equal(isDue(sched, at(7, 0).toISOString(), at(11, 0)), false)
+  })
+  it('works out the next run', () => {
+    // 2026-10-12 is a Monday.
+    const at = (d: number, h: number, m: number) => new Date(2026, 9, d, h, m)
+    const daily = parseSchedule('daily 08:30')!
+    assert.equal(nextRun(daily, at(12, 8, 31).toISOString(), at(12, 9, 0))?.getTime(), at(13, 8, 30).getTime())
+    assert.equal(nextRun(daily, at(11, 8, 30).toISOString(), at(12, 7, 0))?.getTime(), at(12, 8, 30).getTime())
+    assert.equal(nextRun(daily, at(11, 8, 30).toISOString(), at(12, 8, 40))?.getTime(), at(12, 8, 40).getTime(), 'due now')
+    const weekdays = parseSchedule('weekdays 09:00')!
+    assert.equal(nextRun(weekdays, at(16, 9, 0).toISOString(), at(16, 10, 0))?.getTime(), at(19, 9, 0).getTime(), 'Friday to Monday')
+    const every = parseSchedule('every 2h')!
+    assert.equal(nextRun(every, at(12, 8, 0).toISOString(), at(12, 9, 0))?.getTime(), at(12, 10, 0).getTime())
   })
 })
 

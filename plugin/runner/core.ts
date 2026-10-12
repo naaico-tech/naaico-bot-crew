@@ -674,6 +674,19 @@ export function isDue(sched: Schedule, lastRunAt: string, now: Date): boolean {
   return false
 }
 
+/** When a routine fires next, in local time: `now` when it is due, undefined for a schedule with no days. */
+export function nextRun(sched: Schedule, lastRunAt: string, now: Date): Date | undefined {
+  if (isDue(sched, lastRunAt, now)) return now
+  if (sched.kind === 'every') return new Date(Math.max(new Date(lastRunAt).getTime() + sched.ms, now.getTime()))
+  for (let ahead = 0; ahead < 8; ahead++) {
+    const d = new Date(now)
+    d.setDate(d.getDate() + ahead)
+    d.setHours(sched.hour, sched.minute, 0, 0)
+    if (d.getTime() > now.getTime() && sched.days.includes(d.getDay())) return d
+  }
+  return undefined
+}
+
 // ---------- approvals ----------
 
 export type Verdict = 'allow' | 'ask' | 'deny' | 'review'

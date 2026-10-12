@@ -255,6 +255,15 @@ const S = { state: null, view: 'chat', bot: null, chat: null, chatStamp: '' }
 const $ = id => document.getElementById(id)
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 const when = iso => { if (!iso) return ''; const d = new Date(iso); return new Date().toDateString() === d.toDateString() ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }
+const inText = ms => { const m = Math.round(ms / 60000); return m < 1 ? 'now' : m < 60 ? `in ${m}m` : m < 1440 ? `in ${Math.floor(m / 60)}h ${m % 60}m` : `in ${Math.round(m / 1440)}d` }
+/** A routine's next run: the time, how far off, and why it may wait. */
+const nextText = r => {
+  if (r.paused) return 'Paused'
+  if (!r.nextRunAt) return '—'
+  const ms = Date.parse(r.nextRunAt) - Date.now()
+  const held = S.state?.config.paused ? ' · crew paused' : ''
+  return ms < 60000 ? `Due now${held}` : `${esc(when(r.nextRunAt))} <span class="meta">(${inText(ms)})</span>${held}`
+}
 const money = n => '$' + (n || 0).toFixed(2)
 const STATE_TEXT = { working: 'Working', needs_approval: 'Needs approval', chatting: 'Replying', queued: 'Queued', idle: 'Idle' }
 const TILES = ['--hn-tile-1', '--hn-tile-2', '--hn-tile-3', '--hn-tile-4', '--hn-tile-5']
@@ -485,9 +494,9 @@ function renderRoutines() {
       <label class="field">Instructions<textarea class="hn-textarea" id="rPrompt" rows="3" placeholder="Summarize today's meetings, flag conflicts and list emails that need a reply."></textarea></label>
       <div><button class="hn-btn hn-btn--primary" type="submit">Add routine</button></div>
     </form>
-    <table class="hn-table"><thead><tr><th>Routine</th><th>Bot</th><th>When</th><th>Last run</th><th></th></tr></thead><tbody>
-      ${st.routines.map(r => `<tr><td><b>${esc(r.title)}</b><div class="meta" style="white-space:normal">${esc(r.prompt.slice(0, 140))}</div></td><td>${esc(botBy(r.bot)?.name || r.bot)}</td><td class="meta">${esc(r.schedule)}${r.paused ? ' · paused' : ''}</td><td class="meta">${esc(when(r.lastRunAt)) || 'Not yet'}</td>
-        <td><div class="row"><button class="hn-btn sm" type="button" data-pause="${esc(r.id)}" data-p="${r.paused ? '' : '1'}">${r.paused ? 'Resume' : 'Pause'}</button><button class="hn-btn sm danger" type="button" data-del="${esc(r.id)}">Delete</button></div></td></tr>`).join('') || '<tr><td colspan="5" class="meta">No routines yet.</td></tr>'}
+    <table class="hn-table"><thead><tr><th>Routine</th><th>Bot</th><th>When</th><th>Next run</th><th>Last run</th><th></th></tr></thead><tbody>
+      ${st.routines.map(r => `<tr><td><b>${esc(r.title)}</b><div class="meta" style="white-space:normal">${esc(r.prompt.slice(0, 140))}</div></td><td>${esc(botBy(r.bot)?.name || r.bot)}</td><td class="meta">${esc(r.schedule)}${r.paused ? ' · paused' : ''}</td><td class="meta">${nextText(r)}</td><td class="meta">${esc(when(r.lastRunAt)) || 'Not yet'}</td>
+        <td><div class="row"><button class="hn-btn sm" type="button" data-pause="${esc(r.id)}" data-p="${r.paused ? '' : '1'}">${r.paused ? 'Resume' : 'Pause'}</button><button class="hn-btn sm danger" type="button" data-del="${esc(r.id)}">Delete</button></div></td></tr>`).join('') || '<tr><td colspan="6" class="meta">No routines yet.</td></tr>'}
     </tbody></table></div>`
   $('newRoutine').onsubmit = e => { e.preventDefault(); act(async () => { await api('POST', 'routines', { bot: $('rBot').value, schedule: $('rWhen').value, title: $('rTitle').value, prompt: $('rPrompt').value }); $('newRoutine').reset() }, 'Routine added') }
   $('view').querySelectorAll('[data-pause]').forEach(b => (b.onclick = () => act(() => api('PATCH', 'routines/' + b.dataset.pause, { paused: !!b.dataset.p }))))

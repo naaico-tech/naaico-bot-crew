@@ -22,6 +22,7 @@ import {
   isAvailable,
   makeTask,
   MODEL_LABELS,
+  nextRun,
   newId,
   parseModel,
   parseSchedule,
@@ -129,7 +130,11 @@ export async function buildState(s: Store) {
       .slice(0, 80)
       .map(t => ({ id: t.id, title: t.title, owner: t.owner, status: t.status, updatedAt: t.updatedAt, createdBy: t.createdBy, parentId: t.parentId, costUsd: t.costUsd, result: t.result?.slice(0, 400), last: t.history[t.history.length - 1]?.text.slice(0, 200) })),
     approvals: approvals.filter(a => a.status === 'pending'),
-    routines,
+    routines: routines.map(r => {
+      const sched = parseSchedule(r.schedule)
+      const next = sched && !r.paused ? nextRun(sched, r.lastRunAt ?? r.createdAt, new Date()) : undefined
+      return { ...r, nextRunAt: next?.toISOString() }
+    }),
     config: { delegation: cfg.delegation, approvals: cfg.approvals, limits: cfg.limits, concurrency: cfg.concurrency, paused: cfg.paused, managerSlug: cfg.managerSlug },
     connectors: (conn.servers ?? []).map(c => ({ label: c.label, status: c.status, available: isAvailable(c) })),
     connectorsCheckedAt: conn.checkedAt,
