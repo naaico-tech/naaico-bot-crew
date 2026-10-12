@@ -15,13 +15,15 @@ approvals/
 limits.json
 web.json
 runner.json
+runner.lock*
+runner.log
 connectors.json
 
 # Internal and demo files: kept locally, not published
 AUDIT.md
-runner/demo.ts
+plugin/runner/demo.ts
 docs/internal/
 
 # Written by Claude Code when it loads the mod
-mod/*/.claude-plugin/types/
-mod/*/tsconfig.json
+plugin/.claude-plugin/types/
+plugin/tsconfig.json

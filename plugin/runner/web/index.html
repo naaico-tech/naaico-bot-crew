@@ -325,7 +325,7 @@ function renderShell() {
 
   // statusbar: runner · work · spend meter · last event
   const alive = st.runner.alive
-  $('sRunner').innerHTML = `<span class="hn-badge" style="${alive && !st.config.paused ? 'background:var(--hn-success-soft);color:var(--hn-success-text)' : 'background:var(--hn-warning-soft);color:var(--hn-warning)'}">${alive ? (st.config.paused ? 'Paused' : 'Runner on') : 'Runner off'}</span>${alive ? '' : '<span>npm run runner</span>'}`
+  $('sRunner').innerHTML = `<span class="hn-badge" style="${alive && !st.config.paused ? 'background:var(--hn-success-soft);color:var(--hn-success-text)' : 'background:var(--hn-warning-soft);color:var(--hn-warning)'}">${alive ? (st.config.paused ? 'Paused' : 'Runner on') : 'Runner off'}</span>${alive ? '' : '<span>/bot start in Claude Code</span>'}`
   const working = st.tasks.filter(t => t.status === 'working' || t.status === 'needs_approval').length
   const queued = st.tasks.filter(t => t.status === 'queued').length
   $('sWork').textContent = `${working} working · ${queued} queued`
@@ -614,7 +614,7 @@ function liftSplash() {
   const wait = Math.max(0, 900 - (Date.now() - splashShown))
   setTimeout(() => $('splash').classList.add('gone'), LINK.includes('shot') ? 0 : wait)
 }
-setTimeout(() => { if (!S.state) $('splashNote').textContent = 'Waiting for the runner… (npm run runner)' }, 4000)
+setTimeout(() => { if (!S.state) $('splashNote').textContent = 'Waiting for the runner… (/bot start in Claude Code)' }, 4000)
 function connect() {
   if (LINK.includes('shot')) {
     // Screenshot mode: one snapshot, no live stream, so a headless browser can finish loading.

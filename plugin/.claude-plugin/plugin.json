@@ -1,0 +1,13 @@
+{
+  "name": "office-hours",
+  "version": "0.2.0",
+  "description": "Office Hours: custom Claude bots with their own models that hand over tasks and work alongside you while your machine is on.",
+  "author": {
+    "name": "NAAICO",
+    "url": "https://naaico.com"
+  },
+  "homepage": "https://github.com/naaico-tech/office-hours",
+  "repository": "https://github.com/naaico-tech/office-hours",
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}

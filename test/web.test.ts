@@ -12,7 +12,7 @@ const planPath = join(root, 'plan.json')
 writeFileSync(log, '')
 Object.assign(process.env, {
   BOTS_ROOT: root,
-  BOTS_CLAUDE: join(import.meta.dirname, 'test', 'fake-claude.mjs'),
+  BOTS_CLAUDE: join(import.meta.dirname, 'fake-claude.mjs'),
   BOTS_QUIET: '1',
   BOTS_NO_REVIEW: '1',
   BOTS_POLL_MS: '50',
@@ -32,10 +32,10 @@ writeFileSync(
   }),
 )
 
-const { seed } = await import('./setup.ts')
-const { openStore } = await import('./node.ts')
-const { Runner } = await import('./main.ts')
-const { startWeb } = await import('./web.ts')
+const { seed } = await import('../plugin/runner/setup.ts')
+const { openStore } = await import('../plugin/runner/node.ts')
+const { Runner } = await import('../plugin/runner/main.ts')
+const { startWeb } = await import('../plugin/runner/web.ts')
 
 const s = openStore(root)
 const TOKEN = 'a'.repeat(48)
@@ -190,7 +190,7 @@ describe('browser app features', () => {
 })
 
 describe('markdown in replies', async () => {
-  const { md } = await import('./web/markdown.js')
+  const { md } = await import('../plugin/runner/web/markdown.js')
   it('renders the common pieces', () => {
     assert.equal(md('**Done:** Book the call'), '<p><strong>Done:</strong> Book the call</p>')
     assert.equal(md('# Plan\n- one\n- two *now*'), '<h3>Plan</h3><ul><li>one</li><li>two <em>now</em></li></ul>')
@@ -210,7 +210,7 @@ describe('markdown in replies', async () => {
 })
 
 describe('media, artifacts and links in chat', async () => {
-  const { md } = await import('./web/markdown.js')
+  const { md } = await import('../plugin/runner/web/markdown.js')
   it('shows images and video, from the web or from the bots folders', () => {
     assert.equal(md('![chart](https://example.com/c.png)'), '<p><a class="md-media-link" href="https://example.com/c.png" target="_blank" rel="noopener noreferrer"><img class="md-media" src="https://example.com/c.png" alt="chart" loading="lazy"></a></p>')
     assert.match(md('Rendered: ~/marketing/promo.mp4'), /<video class="md-media" controls preload="metadata" src="\/api\/file\?path=~%2Fmarketing%2Fpromo\.mp4"/)
@@ -256,7 +256,7 @@ describe('files, unread and approvals in chat', () => {
   })
 
   it('counts unread replies and approvals per bot, and clears unread when read', async () => {
-    const { saveChat } = await import('./core.ts')
+    const { saveChat } = await import('../plugin/runner/core.ts')
     const at = (m: number) => new Date(Date.now() - m * 60_000).toISOString()
     await saveChat(s, { bot: 'calendar', status: 'idle', messages: [
       { id: 'm1', role: 'you', text: 'hi', at: at(5), answered: true },
@@ -271,7 +271,7 @@ describe('files, unread and approvals in chat', () => {
     chats = (await call('GET', '/api/state')).data.chats
     assert.equal(chats.calendar.unread, 0)
     assert.equal(chats.calendar.approvals, 1)
-    const thread = await (await import('./core.ts')).readChat(s, 'calendar')
+    const thread = await (await import('../plugin/runner/core.ts')).readChat(s, 'calendar')
     assert.equal(thread.messages.length, 3)
   })
 })

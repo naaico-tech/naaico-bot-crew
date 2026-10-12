@@ -4,7 +4,7 @@
 
 <p align="center"><b>A crew of Claude bots that works alongside you while your machine is on.</b><br>By <a href="https://naaico.com">NAAICO</a></p>
 
-<p align="center">Office Hours is a crew of AI teammates for <a href="https://docs.claude.com/en/docs/claude-code">Claude Code</a>. You design each bot (its job, model, effort and connectors) and talk to it in a chat. Bots hand work to each other through a Manager and ask before they touch anything outside your machine. A runner on your Mac does the work, so it keeps going when Claude Code is closed, for as long as your machine is on and the runner is running.</p>
+<p align="center">Office Hours is a crew of AI teammates for <a href="https://docs.claude.com/en/docs/claude-code">Claude Code</a>. You design each bot (its job, model, effort and connectors) and talk to it in a chat. Bots hand work to each other through a Manager and ask before they touch anything outside your machine. A runner on your Mac does the work, so it keeps going when Claude Code is closed, for as long as your machine is on. Install it as a Claude Code plugin and it sets itself up.</p>
 
 ![Chatting with the Manager: a status update in Markdown, a proposal to create a new bot with Apply and Discard, and a finished task answered in the chat](docs/screenshots/chat.png)
 
@@ -44,32 +44,50 @@ The app follows your system's light or dark setting (Dawn and Neon), and the NAA
 | Part | Where | Job |
 |---|---|---|
 | Crew store | `~/.claude/bots/` (owner-only) | Bots as Markdown files, tasks with full history, chats, approvals, routines, the latest plan reading |
-| Runner | `runner/main.ts` | Every 3 seconds: checks your usage limits, starts queued tasks and chat replies as their bot, sends results back up the chain, fires routines |
+| Runner | `plugin/runner/main.ts` | Every 3 seconds: checks your usage limits, starts queued tasks and chat replies as their bot, sends results back up the chain, fires routines |
 | Bot runs | `claude -p` | The official Claude Code CLI, signed in as you, with the bot's model and effort and only its own connectors |
-| Crew tools | `runner/mcp.ts` | `handoff`, `assign_task`, `complete_task`, `block_task`, `remember`, `create_task`, `propose_change`, and the approval check every tool call goes through |
-| Browser app | `runner/web/` · `http://127.0.0.1:4545` | Chat, bot builder, board, approvals, routines, settings |
-| Claude Code mod | `mod/office-hours/` | `/bot` commands, `@Bot` mentions, the Bots pane, and Claude Code's own usage readings |
+| Crew tools | `plugin/runner/mcp.ts` | `handoff`, `assign_task`, `complete_task`, `block_task`, `remember`, `create_task`, `propose_change`, and the approval check every tool call goes through |
+| Browser app | `plugin/runner/web/` · `http://127.0.0.1:4545` | Chat, bot builder, board, approvals, routines, settings |
+| Claude Code plugin | `plugin/` | Sets up and starts the runner, `/bot` commands, `@Bot` mentions, the Bots pane, and Claude Code's own usage readings |
 
 ## Get started
 
-You need **Node 24+** and **Claude Code**, signed in (`claude auth login`).
+You need **Claude Code**, signed in (`claude auth login`), and **Node 24+** (`node --version`; get it from [nodejs.org](https://nodejs.org) or `brew install node`). The runner has no npm dependencies.
+
+In Claude Code, add the marketplace and install the plugin:
+
+```
+/plugin marketplace add naaico-tech/office-hours
+/plugin install office-hours@office-hours
+```
+
+Then start a new session. On its first start the plugin:
+
+1. checks that Node 24+ and the `claude` CLI are on your PATH, and tells you what's missing if not;
+2. creates the crew store in `~/.claude/bots` (owner-only) with the Manager, Inbox, Calendar and Bug fixer;
+3. starts the runner in the background, detached from the session, with its log in `~/.claude/bots/runner.log`.
+
+`/bot web` prints the browser app link (`http://127.0.0.1:4545/?token=…`). It signs you in once with a cookie. `/bot help` lists the commands.
+
+The runner keeps working after you close Claude Code, until you stop it or the machine shuts down. Each new session starts it again if it isn't running. Only one runner ever works a store.
+
+| Command | What it does |
+|---|---|
+| `/bot start` | Set up and start the runner, and start it with every session from now on |
+| `/bot stop` | Stop the runner, and stop starting it with new sessions |
+| `/bot runner` | Is the runner running? |
+
+After updating the plugin, run `/bot stop` and then `/bot start` so the runner picks up the new version.
+
+### From a clone
 
 ```bash
 git clone https://github.com/naaico-tech/office-hours.git
 cd office-hours
-npm run seed      # creates ~/.claude/bots with Manager, Inbox, Calendar and Bug fixer
-npm run runner    # starts the runner; it prints the browser app link
+npm run seed      # creates ~/.claude/bots with the starter crew
+npm run runner    # runs the runner in this terminal and prints the browser app link
+claude --plugin-dir ./plugin
 ```
-
-Open the printed link (`http://127.0.0.1:4545/?token=…`). It signs you in once with a cookie. Keep the runner running in a terminal for as long as you want the crew to work.
-
-To use the crew from Claude Code as well, load the mod:
-
-```bash
-claude --plugin-dir ./mod/office-hours
-```
-
-Then `/bot web` prints the browser link and `/bot help` lists the commands.
 
 ## Examples
 
@@ -134,13 +152,13 @@ Work in a new branch, run the tests before and after your change, and open a PR 
 
 ```bash
 npm test          # runner, crew tools, browser app and Markdown (node --test)
-claude plugin validate mod/office-hours && claude plugin test mod/office-hours
+claude plugin validate . && claude plugin validate plugin && claude plugin test plugin
 ```
 
 The tests drive the real runner and crew tools against a stand-in `claude`, so they need no account and cost nothing.
 
 ## License
 
-MIT, © NAAICO. The bundled fonts (Silkscreen, IBM Plex) are under the SIL Open Font License; see `runner/web/fonts/`.
+MIT, © NAAICO. The bundled fonts (Silkscreen, IBM Plex) are under the SIL Open Font License; see `plugin/runner/web/fonts/`.
 
 <p align="center"><a href="https://naaico.com"><img src="docs/naaico-mark.svg" alt="NAAICO" width="160"></a></p>

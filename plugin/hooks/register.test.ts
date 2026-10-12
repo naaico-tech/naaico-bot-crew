@@ -21,7 +21,11 @@ role: manager
 `
 
 /** An in-memory file system beneath the plugin, seeded with two bots. */
-function fakeFs(on: any): Map<string, string> {
+let clock: { advance: (ms: number) => Promise<void> }
+
+type Run = (argv: string[]) => { exitCode: number; stdout: string } | undefined
+
+function fakeFs(on: any, proc?: Run): Map<string, string> {
   const files = new Map<string, string>([
     [`${ROOT}/bots/inbox.md`, INBOX],
     [`${ROOT}/bots/manager.md`, MANAGER],
@@ -44,10 +48,11 @@ function fakeFs(on: any): Map<string, string> {
   })
   on('process.run', (_$: any, e: any) => {
     if (e.argv[0] === 'rm') files.delete(e.argv[e.argv.length - 1])
-    return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    const r = proc?.(e.argv) ?? { exitCode: 0, stdout: '' }
+    return { value: { ...r, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   mock.env(on, { HOME: '/home/t' })
-  mock.clock(on)
+  clock = mock.clock(on)
   return files
 }
 
@@ -121,5 +126,43 @@ describe('office-hours', () => {
     const saved = JSON.parse(files.get(`${ROOT}/routines.json`) ?? '[]')
     expect(saved[0].schedule).toBe('weekdays 08:30')
     expect(saved[0].bot).toBe('inbox')
+  })
+
+  test('start explains what is missing when Node is too old', async ($, on) => {
+    const files = fakeFs(on, argv => (argv.includes('-p') ? { exitCode: 0, stdout: '/usr/local/bin/node 20.11.0\n' } : undefined))
+    const r = await run($, 'start')
+    expect(r.text).toContain('needs Node 24 or newer')
+    expect(JSON.parse(files.get(`${ROOT}/config.json`) ?? '{}').autoStart).toBe(true)
+  })
+
+  test('start sets up the store and launches the runner detached', async ($, on) => {
+    const calls: string[][] = []
+    const files = fakeFs(on, argv => {
+      calls.push(argv)
+      if (argv.includes('-p')) return { exitCode: 0, stdout: '/opt/node/bin/node 24.3.0\n' }
+      if (argv[0] === '/bin/sh') {
+        files.set(`${ROOT}/runner.json`, JSON.stringify({ pid: 4242, heartbeat: new Date().toISOString(), running: [] }))
+        files.set(`${ROOT}/web.json`, JSON.stringify({ port: 4545, token: 'tok' }))
+      }
+      return undefined
+    })
+    const pending = run($, 'start')
+    await clock.advance(1000)
+    const r = await pending
+    expect(r.text).toContain('Office Hours runner started')
+    expect(r.text).toContain('http://127.0.0.1:4545/?token=tok')
+    expect(calls.some(a => a[0] === '/opt/node/bin/node' && a[1].endsWith('/runner/setup.ts'))).toBe(true)
+    expect(JSON.parse(files.get(`${ROOT}/config.json`) ?? '{}').autoStart).toBe(true)
+    const launch = calls.find(a => a[0] === '/bin/sh') ?? []
+    expect(launch[3]).toBe('/opt/node/bin/node')
+    expect(launch[4].endsWith('/runner/main.ts')).toBe(true)
+  })
+
+  test('stop turns off starting with Claude Code', async ($, on) => {
+    const files = fakeFs(on)
+    files.set(`${ROOT}/runner.json`, JSON.stringify({ pid: 4242, heartbeat: '2000-01-01T00:00:00.000Z', running: [] }))
+    const r = await run($, 'stop')
+    expect(r.text).toContain('not running')
+    expect(JSON.parse(files.get(`${ROOT}/config.json`) ?? '{}').autoStart).toBe(false)
   })
 })

@@ -2,7 +2,8 @@
 // session: it works the task board in ~/.claude/bots, runs each task as its
 // bot (on the bot's model) through headless `claude -p`, feeds sub-task
 // results back to their parents, and fires routines on schedule.
-import { chmod, mkdir, stat } from 'node:fs/promises'
+import { readFileSync, unlinkSync } from 'node:fs'
+import { chmod, link, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 
 import { answerChat, botSystemPrompt, chatSystemPrompt, checkLimits, DEFAULT_EFFORT, finishOrReturn, childFinished, currentPercent, event, RUNAWAY_USD, windowsFromStreamEvent, newId as makeId, readChat, saveChat, unanswered, isDue, makeTask, mcpScope, newId, parseSchedule, taskPrompt, MODEL_IDS, MODEL_LABELS, TERMINAL } from './core.ts'
@@ -415,24 +416,57 @@ export class Runner {
   }
 }
 
+/**
+ * One runner per store. The lock file is created atomically (link fails if it exists) and holds
+ * the owner's pid; a lock left by a dead process is moved aside by exactly one taker (rename).
+ * Resolves the pid of a live runner that holds it, or undefined once this process holds it.
+ */
+async function takeLock(root: string): Promise<number | undefined> {
+  const path = join(root, 'runner.lock')
+  const mine = join(root, `runner.lock.${process.pid}`)
+  await writeFile(mine, String(process.pid))
+  try {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await link(mine, path)
+        return undefined
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
+      }
+      const pid = Number(await readFile(path, 'utf8').catch(() => ''))
+      if (pid && pid !== process.pid) {
+        try {
+          process.kill(pid, 0)
+          return pid
+        } catch {}
+      }
+      await rename(path, join(root, `runner.lock.stale.${process.pid}`)).catch(() => {})
+      await rm(join(root, `runner.lock.stale.${process.pid}`), { force: true })
+    }
+    throw new Error(`Could not take ${path}`)
+  } finally {
+    await rm(mine, { force: true })
+  }
+}
+
+function releaseLock(root: string): void {
+  const path = join(root, 'runner.lock')
+  try {
+    if (readFileSync(path, 'utf8') === String(process.pid)) unlinkSync(path)
+  } catch {}
+}
+
 if (import.meta.main) {
   const store = openStore()
-  const other = await store.runner()
-  if (other && other.pid !== process.pid && Date.now() - Date.parse(other.heartbeat) < 20_000) {
-    let alive = true
-    try {
-      process.kill(other.pid, 0)
-    } catch {
-      alive = false
-    }
-    if (alive) {
-      console.error(`Another runner (pid ${other.pid}) is already working ${ROOT}. Stop it first: kill ${other.pid}`)
-      process.exit(1)
-    }
-  }
   // The store holds email snippets, chat logs and the browser token: owner-only.
   await mkdir(store.root, { recursive: true, mode: 0o700 })
   await chmod(store.root, 0o700).catch(() => {})
+  const other = await takeLock(store.root)
+  if (other) {
+    console.error(`Another runner (pid ${other}) is already working ${ROOT}. Stop it first: kill ${other}`)
+    process.exit(1)
+  }
+  process.on('exit', () => releaseLock(store.root))
   const runner = new Runner(store)
   await runner.recover()
   console.log(`Office Hours runner ${process.pid} watching ${ROOT}`)

@@ -110,6 +110,8 @@ export type Config = {
   settingSources: string
   allow: Record<string, string[]>
   paused: boolean
+  /** Claude Code starts the runner when a session opens; `/bot stop` turns this off. */
+  autoStart?: boolean
 }
 
 export type Routine = {

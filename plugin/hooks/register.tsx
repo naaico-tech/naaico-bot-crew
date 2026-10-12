@@ -21,8 +21,8 @@ import {
   Store,
   TERMINAL,
   windowsFromSession,
-} from './core.ts'
-import type { Approval, Bot, Fs, ModelName, Routine, Task } from './core.ts'
+} from '../runner/core.ts'
+import type { Approval, Bot, Fs, ModelName, Routine, Task } from '../runner/core.ts'
 import type { Snapshot } from '../types'
 
 const PANE = 'bots'
@@ -46,6 +46,7 @@ const HELP = `Office Hours commands:
   /bot routine list | pause <id> | resume <id> | delete <id>
   /bot teach <Bot> | <schedule> | <title>   turn this conversation into a routine
   /bot pause | resume            stop or restart the runner picking up work
+  /bot start | stop              start or stop the background runner (it starts with Claude Code until you stop it)
   /bot runner                    is the background runner alive?
   /bot pane                      open the Bots pane
   /bot web                       link to the browser app (chat, bot builder, board)
@@ -62,6 +63,97 @@ async function storeFor($: any): Promise<Store> {
     },
   }
   return new Store(root, fs)
+}
+
+// ---------- install and runner lifecycle ----------
+// Installing the plugin is the whole install: the first session after it checks Node and the
+// claude CLI, creates the crew store with the starter bots, and starts the runner in the
+// background, detached, so it keeps working after the session closes. Later sessions start it
+// again if it isn't running, unless /bot stop turned that off.
+const MIN_NODE = 24
+const ALIVE_MS = 20_000
+
+type Found = { ok: true; node: string; env: Record<string, string> } | { ok: false; error: string }
+
+/** The PATH a login shell gets, so node and claude installed by nvm, Homebrew or npm are found. */
+async function loginPath($: any): Promise<string> {
+  const shell = (await $.env.get('SHELL')) || '/bin/zsh'
+  const r = await $.process.run([shell, '-lc', 'printf "\\n@@PATH=%s" "$PATH"'], { timeoutMs: 15_000 }).catch(() => undefined)
+  const m = r?.stdout.match(/@@PATH=(.*)$/)
+  return m?.[1]?.trim() || ((await $.env.get('PATH')) ?? '/usr/bin:/bin')
+}
+
+/** Node 24+ and the claude CLI, or what is missing and how to get it. */
+async function findTools($: any, root: string): Promise<Found> {
+  const env = { PATH: await loginPath($), BOTS_ROOT: root }
+  const pinned = await $.env.get('BOTS_NODE')
+  const probe = await $.process
+    .run([pinned || '/usr/bin/env', ...(pinned ? [] : ['node']), '-p', 'process.execPath + " " + process.versions.node'], { env })
+    .catch(() => undefined)
+  if (!probe || probe.exitCode !== 0) return { ok: false, error: `Office Hours needs Node ${MIN_NODE} or newer, and none was found. Install it (https://nodejs.org or \`brew install node\`), then run /bot start.` }
+  const [node, version] = probe.stdout.trim().split(' ')
+  if (Number(version.split('.')[0]) < MIN_NODE) return { ok: false, error: `Office Hours needs Node ${MIN_NODE} or newer; ${node} is ${version}. Install a newer Node, then run /bot start.` }
+  const claude = await $.process.run(['/usr/bin/env', 'claude', '--version'], { env }).catch(() => undefined)
+  if (!claude || claude.exitCode !== 0) return { ok: false, error: 'Office Hours runs bots with the Claude Code CLI, and `claude` is not on your PATH. Install it, sign in with `claude auth login`, then run /bot start.' }
+  return { ok: true, node, env }
+}
+
+async function runnerAlive($: any, s: Store): Promise<{ alive: boolean; pid?: number }> {
+  const r = await s.runner()
+  if (!r || Date.now() - Date.parse(r.heartbeat) > ALIVE_MS) return { alive: false, pid: r?.pid }
+  const probe = await $.process.run(['kill', '-0', String(r.pid)]).catch(() => undefined)
+  return { alive: probe?.exitCode === 0, pid: r.pid }
+}
+
+async function webLink(s: Store): Promise<string> {
+  const info = await s.readJson<{ port?: number; token?: string }>(s.path('web.json'), {})
+  return info.token ? `Browser app: http://127.0.0.1:${info.port ?? 4545}/?token=${info.token}` : ''
+}
+
+let starting: Promise<{ started: boolean; text: string }> | undefined
+
+/** Sets up the store on first run and starts the runner; resolves what to tell the user.
+ * Calls while a start is under way (session start and /bot start together) share it. */
+function startRunner($: any, s: Store): Promise<{ started: boolean; text: string }> {
+  starting ??= launchRunner($, s).finally(() => {
+    starting = undefined
+  })
+  return starting
+}
+
+async function launchRunner($: any, s: Store): Promise<{ started: boolean; text: string }> {
+  if ((await runnerAlive($, s)).alive) return { started: false, text: `The runner is already running.\n${await webLink(s)}` }
+  const tools = await findTools($, s.root)
+  if (!tools.ok) return { started: false, text: tools.error }
+  const dir = `${$.plugin.root}/runner`
+  await $.process.run(['mkdir', '-p', '-m', '700', s.root])
+  if (!(await $.fs.exists(s.path('config.json')))) {
+    const seeded = await $.process.run([tools.node, `${dir}/setup.ts`], { env: tools.env })
+    if (seeded.exitCode !== 0) return { started: false, text: `Could not create the crew store: ${seeded.stderr.trim()}` }
+  }
+  // Detached from this session: nohup, output to a log, and no Claude Code variables carried
+  // into the bots' own claude runs.
+  const log = s.path('runner.log')
+  await $.process.run(
+    ['/bin/sh', '-c', 'unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SSE_PORT; nohup "$0" "$1" >>"$2" 2>&1 </dev/null &', tools.node, `${dir}/main.ts`, log],
+    { env: tools.env },
+  )
+  for (let i = 0; i < 20; i++) {
+    await $.clock.sleep(500)
+    if ((await runnerAlive($, s)).alive) return { started: true, text: `Office Hours runner started.\n${await webLink(s)}` }
+  }
+  return { started: false, text: `The runner did not start. Its log is ${log}.` }
+}
+
+async function stopRunner($: any, s: Store): Promise<string> {
+  const { alive, pid } = await runnerAlive($, s)
+  if (!alive || !pid) return 'The runner is not running.'
+  await $.process.run(['kill', String(pid)])
+  for (let i = 0; i < 10; i++) {
+    await $.clock.sleep(500)
+    if (!(await runnerAlive($, s)).alive) break
+  }
+  return `Stopped the runner (pid ${pid}). /bot start starts it again.`
 }
 
 function findBot(bots: Bot[], name: string): Bot | undefined {
@@ -152,16 +244,26 @@ export async function runCommand($: any, args: string, now: Date = new Date()): 
     case 'help':
       return HELP
     case 'web': {
-      const info = await s.readJson<{ port?: number; token?: string }>(s.path('web.json'), {})
-      if (!info.token) return 'The browser app starts with the runner: cd ~/workspaces/claude-bots && npm run runner'
-      const live = (await snap(s, now)).runner === 'running'
-      return `${live ? '' : 'The runner is not running, so this link will not open until you start it (npm run runner).\n'}Browser app: http://127.0.0.1:${info.port ?? 4545}/?token=${info.token}`
+      const link = await webLink(s)
+      if (!link) return 'The browser app starts with the runner: /bot start'
+      const live = (await runnerAlive($, s)).alive
+      return `${live ? '' : 'The runner is not running, so this link will not open until you start it with /bot start.\n'}${link}`
+    }
+    case 'start': {
+      // Start first: on a fresh install that creates the store and its config.
+      const r = await startRunner($, s)
+      await s.saveConfig({ ...(await s.config()), autoStart: true })
+      return r.text
+    }
+    case 'stop': {
+      await s.saveConfig({ ...cfg, autoStart: false })
+      return `${await stopRunner($, s)}\nIt won't start with Claude Code until you run /bot start.`
     }
     case 'pane':
       await $.ui.open({ id: PANE, title: 'Bots' })
       return 'Bots pane opened.'
     case 'list':
-      if (!bots.length) return 'No bots yet. Run `node runner/setup.ts` in ~/workspaces/claude-bots, or /bot new.'
+      if (!bots.length) return 'No bots yet. /bot start creates the starter crew, or make one with /bot new.'
       return (await snap(s, now)).bots.map(b => `${b.name} (${b.slug}) · ${b.model} · ${b.activity}\n  ${b.job}`).join('\n')
     case 'new': {
       const [name, model, job, connectors, handTo] = rest.split('|').map(x => x.trim())
@@ -261,7 +363,7 @@ export async function runCommand($: any, args: string, now: Date = new Date()): 
       const st = await snap(s, now)
       return st.runner === 'running'
         ? `Runner is running (pid ${r?.pid}, ${r?.running.length ?? 0} task(s) in progress)${st.paused ? ', paused' : ''}.`
-        : `Runner is not running${r ? ` (last seen ${r.heartbeat})` : ''}. Start it: node ~/workspaces/claude-bots/runner/main.ts`
+        : `Runner is not running${r ? ` (last seen ${r.heartbeat})` : ''}. Start it with /bot start.`
     }
     default:
       return `Unknown subcommand "${sub}".\n\n${HELP}`
@@ -317,9 +419,26 @@ async function refresh($: any): Promise<void> {
   const waiting = next.approvals.length
   $.ui.status(
     next.runner === 'stopped'
-      ? 'bots: runner stopped'
+      ? 'bots: runner stopped · /bot start'
       : `bots: ${working} working${waiting ? ` · ${waiting} need approval` : ''}${next.paused ? ' · paused' : ''}`,
   )
+}
+
+/** Sets up and starts the runner when a session opens, unless /bot stop turned that off. */
+async function autoStart($: any): Promise<void> {
+  const s = await storeFor($)
+  if ((await s.config()).autoStart === false || (await runnerAlive($, s)).alive) return
+  const r = await startRunner($, s)
+  $.ui.toast(r.started ? 'Office Hours is running. /bot web opens the browser app.' : r.text)
+  await refresh($)
+}
+
+async function startAndRefresh($: any): Promise<void> {
+  const s = await storeFor($)
+  const r = await startRunner($, s)
+  await s.saveConfig({ ...(await s.config()), autoStart: true })
+  $.ui.toast(r.text.split('\n')[0])
+  await refresh($)
 }
 
 async function decideAndRefresh($: any, id: string, allowed: boolean, always: boolean): Promise<void> {
@@ -333,6 +452,7 @@ export const register: Register = on => {
     void $.ui.open({ id: PANE, title: 'Bots' })
     cancelTimer?.()
     cancelTimer = $.clock.every(3000, () => void refresh($).catch(() => {}))
+    void autoStart($).catch(() => {})
     void $.session.usage().then((u: { rateLimits?: { kind: string; percentUsed: number; resetsAt?: string }[] }) => recordWindows($, u.rateLimits)).catch(() => {})
     void refresh($).catch(() => {})
     return next(e)
@@ -370,6 +490,7 @@ export const register: Register = on => {
           Runner: {st.runner}
           {st.paused ? ' (paused)' : ''}
         </Text>
+        {st.runner === 'stopped' && <Button key="start" label="Start runner" onPress={() => startAndRefresh($)} />}
         {st.approvals.length > 0 && <Text bold>Needs your approval</Text>}
         {st.approvals.map(a => (
           <Box key={`ap-${a.id}`} flexDirection="column">

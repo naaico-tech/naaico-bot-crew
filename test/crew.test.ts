@@ -22,9 +22,9 @@ import {
   parseMention,
   parseSchedule,
   ruleFor,
-} from './core.ts'
-import type { Config } from './core.ts'
-import { STARTER_CREW } from './setup.ts'
+} from '../plugin/runner/core.ts'
+import type { Config } from '../plugin/runner/core.ts'
+import { STARTER_CREW } from '../plugin/runner/setup.ts'
 
 const cfg: Config = { ...DEFAULT_CONFIG, delegation: 'manager', approvals: 'auto' }
 const [manager, inbox, calendar, bugFixer] = STARTER_CREW
@@ -143,16 +143,16 @@ describe('runner end to end (fake claude)', () => {
     writeFileSync(log, '')
     Object.assign(process.env, {
       BOTS_ROOT: root,
-      BOTS_CLAUDE: join(import.meta.dirname, 'test', 'fake-claude.mjs'),
+      BOTS_CLAUDE: join(import.meta.dirname, 'fake-claude.mjs'),
       BOTS_QUIET: '1',
       BOTS_NO_REVIEW: '1',
       BOTS_POLL_MS: '50',
       FAKE_LOG: log,
       FAKE_PLAN: planPath,
     })
-    const { seed } = await import('./setup.ts')
-    const { openStore } = await import('./node.ts')
-    const { Runner } = await import('./main.ts')
+    const { seed } = await import('../plugin/runner/setup.ts')
+    const { openStore } = await import('../plugin/runner/node.ts')
+    const { Runner } = await import('../plugin/runner/main.ts')
     await seed(root)
     const s = openStore(root)
     await s.saveConfig({ ...(await s.config()), concurrency: 2 })
@@ -220,7 +220,7 @@ describe('runner end to end (fake claude)', () => {
 
     assert.deepEqual((await s.config()).allow.calendar, ['mcp__claude_ai_Google_Calendar__create_event'])
     assert.match(await s.memory('inbox'), /Acme prefers mornings/)
-    const spend = await s.usage((await import('./node.ts')).today())
+    const spend = await s.usage((await import('../plugin/runner/node.ts')).today())
     assert.ok((spend.manager ?? 0) > 0 && (spend.inbox ?? 0) > 0)
   })
 })
@@ -251,10 +251,10 @@ describe('returning finished work', () => {
       'manager@1': [{ name: 'complete_task', arguments: { result: 'Call booked Tue 10:00' } }],
       'inbox@1': [{ name: 'complete_task', arguments: { result: '**Booked** Tue 10:00 and replied to Acme' } }],
     }))
-    const { seed } = await import('./setup.ts')
-    const { openStore } = await import('./node.ts')
-    const { Runner } = await import('./main.ts')
-    const { readChat } = await import('./core.ts')
+    const { seed } = await import('../plugin/runner/setup.ts')
+    const { openStore } = await import('../plugin/runner/node.ts')
+    const { Runner } = await import('../plugin/runner/main.ts')
+    const { readChat } = await import('../plugin/runner/core.ts')
     await seed(root)
     const s = openStore(root)
     await s.saveTask(makeTask({ id: 't-chain', title: 'Sort out the Acme call', body: 'Sort out the Acme call', owner: 'inbox', createdBy: 'chat:inbox', at: new Date().toISOString() }))
@@ -301,9 +301,9 @@ describe('plan usage limits', () => {
     Object.assign(process.env, { BOTS_ROOT: root, FAKE_LOG: join(root, 'fake.log'), FAKE_PLAN: join(root, 'plan.json'), FAKE_UTIL: '' }, extra)
     writeFileSync(join(root, 'plan.json'), JSON.stringify({ inbox: [{ name: 'complete_task', arguments: { result: 'done' } }] }))
     writeFileSync(join(root, 'fake.log'), '')
-    const { seed } = await import('./setup.ts')
-    const { openStore } = await import('./node.ts')
-    const { Runner } = await import('./main.ts')
+    const { seed } = await import('../plugin/runner/setup.ts')
+    const { openStore } = await import('../plugin/runner/node.ts')
+    const { Runner } = await import('../plugin/runner/main.ts')
     await seed(root)
     const s = openStore(root)
     await s.saveTask(makeTask({ id: 't-1', title: 'Triage', body: 'Triage', owner: 'inbox', createdBy: 'you', at: new Date().toISOString() }))

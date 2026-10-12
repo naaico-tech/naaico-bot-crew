@@ -1,6 +1,6 @@
 {
   "name": "office-hours",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Office Hours: a crew of AI teammates for Claude Code that works alongside you, with custom bots, handovers through a Manager, approvals, routines and plan-aware usage limits.",
   "type": "module",
@@ -8,9 +8,9 @@
     "node": ">=24"
   },
   "scripts": {
-    "seed": "node runner/setup.ts",
-    "runner": "node runner/main.ts",
-    "test": "node --test runner/crew.test.ts runner/web.test.ts"
+    "seed": "node plugin/runner/setup.ts",
+    "runner": "node plugin/runner/main.ts",
+    "test": "node --test test/crew.test.ts test/web.test.ts"
   },
   "license": "MIT",
   "repository": {

@@ -1,0 +1,16 @@
+{
+  "name": "office-hours",
+  "owner": { "name": "NAAICO", "url": "https://naaico.com" },
+  "metadata": { "description": "Office Hours: a crew of Claude bots that works alongside you." },
+  "plugins": [
+    {
+      "name": "office-hours",
+      "source": "./plugin",
+      "description": "Custom Claude bots with their own models that hand over tasks, ask before acting, and respect your plan's usage limits. Sets itself up on first run.",
+      "version": "0.2.0",
+      "license": "MIT",
+      "homepage": "https://github.com/naaico-tech/office-hours",
+      "keywords": ["agents", "bots", "automation", "crew"]
+    }
+  ]
+}
