@@ -1,0 +1,20 @@
+{
+  "name": "naaico-bot-crew",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NAAICO Bot Crew: a crew of AI teammates for Claude Code, with custom bots, handovers through a Manager, approvals, routines and a background runner.",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "seed": "node runner/setup.ts",
+    "runner": "node runner/main.ts",
+    "test": "node --test runner/crew.test.ts runner/web.test.ts"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/naaico-tech/naaico-bot-crew.git"
+  }
+}

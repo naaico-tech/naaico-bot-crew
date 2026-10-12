@@ -1,0 +1,602 @@
+<!doctype html>
+<html lang="en" class="hn" data-mode="dawn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NAAICO Bot Crew</title>
+<link rel="stylesheet" href="/hognt.css">
+<style>
+/* Bot Crew on HedgeOS/NT v2: one NT application window on grid paper.
+   Shell = titlebar · menubar · (crew panel | client area) · statusbar.
+   Accent law per view: blue acts (one primary action), red speaks (eyebrows, the approvals count),
+   yellow measures (spend and "thinking" meters only). Bevel = pressable, hard shadow = floating. */
+html, body { height: 100%; margin: 0; }
+body { padding: 16px; box-sizing: border-box; }
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+.hn h1, .hn h2, .hn h3 { margin: 0; }
+button { font: inherit; }
+:focus-visible { outline: 1px dotted var(--hn-ink); outline-offset: 2px; }
+
+/* ---------- shell ---------- */
+.app { height: 100%; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; grid-template-columns: minmax(0, 1fr); }
+/* Loading splash: the NAAICO mark, per the brand rules. Six square tiles in fixed colours (the same in
+   Dawn and Neon), 2px #0f0f0f outline, 2px gap, pixel glyph at 37.5% of the tile, one tile of clear space.
+   Never recoloured, respaced, rounded or stretched; tiles snap in one at a time. */
+.splash { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; align-content: center; gap: 14px; background: var(--hn-canvas);
+  background-image: linear-gradient(var(--hn-grid) 1px, transparent 1px), linear-gradient(90deg, var(--hn-grid) 1px, transparent 1px); background-size: 24px 24px; }
+.splash.gone { display: none; }
+.naaico { display: inline-flex; gap: 2px; padding: 40px; text-decoration: none; }
+.naaico > b { width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; border: 2px solid #0f0f0f; border-radius: 0;
+  font-family: var(--hn-font-px); font-size: 15px; font-weight: 400; line-height: 1; color: #0f0f0f; box-sizing: border-box; animation: snap 1ms steps(1) both; }
+.naaico > b:nth-child(1) { background: #4d6df3; animation-delay: 0ms; } .naaico > b:nth-child(2) { background: #22b14c; animation-delay: 110ms; }
+.naaico > b:nth-child(3) { background: #22b14c; animation-delay: 220ms; } .naaico > b:nth-child(4) { background: #ff7e00; animation-delay: 330ms; }
+.naaico > b:nth-child(5) { background: #ed1c24; animation-delay: 440ms; } .naaico > b:nth-child(6) { background: #6f3198; color: #f0f0f0; animation-delay: 550ms; }
+@keyframes snap { from { visibility: hidden; } to { visibility: visible; } }
+.splash-note { font-family: var(--hn-font-ui); font-size: 12px; color: var(--hn-mute); min-height: 1.2em; margin-top: -28px; }
+@media (prefers-reduced-motion: reduce) { .naaico > b { animation: none; } }
+.hn-titlebar-btn { width: auto; min-width: 22px; padding: 0 6px; }
+.menubar { display: flex; align-items: center; gap: 2px; padding: 3px 2px; border-bottom: 1px solid var(--hn-bevel-shadow); }
+.menu { font-family: var(--hn-font-ui); font-size: 13px; color: var(--hn-ink); background: none; border: 0; padding: 4px 10px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.menu:hover { background: var(--hn-face-soft); }
+.menu[aria-current="page"] { background: var(--hn-ink); color: var(--hn-canvas); }
+.menu .hn-badge--red { font-size: 10px; padding: 0 6px; line-height: 16px; }
+.menubar .spacer { flex: 1; }
+
+.workspace { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 3px; min-height: 0; padding-top: 3px; }
+.client { box-shadow: var(--hn-bevel-in); background: var(--hn-canvas);
+  background-image: linear-gradient(var(--hn-grid) 1px, transparent 1px), linear-gradient(90deg, var(--hn-grid) 1px, transparent 1px);
+  background-size: 24px 24px; min-height: 0; min-width: 0; overflow: auto; position: relative; }
+.client.flush { overflow: hidden; display: flex; flex-direction: column; }
+.page { padding: 24px; display: grid; gap: 16px; align-content: start; max-width: 1180px; }
+.page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.page-head p { margin: 6px 0 0; max-width: 64ch; font-size: 14px; }
+.hn-statusbar > span { display: flex; align-items: center; gap: 8px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hn-statusbar > span.grow { flex: 2; }
+#sFive, #sWeek { flex: 1.3; }
+.limit-note { font-family: var(--hn-font-ui); font-size: 12px; color: var(--hn-ink); background: var(--hn-signal); padding: 2px 10px; box-shadow: var(--hn-bevel-well); }
+.hn-statusbar .hn-progress { height: 12px; padding: 1px; gap: 1px; flex: 0 0 auto; }
+.hn-statusbar .hn-progress > i { width: 6px; }
+.hn-progress > i.off { background: transparent; }
+
+@media (max-width: 820px) {
+  body { padding: 0; }
+  .hn-window { box-shadow: var(--hn-bevel-out); }
+  .workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .crew { max-height: 30vh; }
+  .hn-statusbar > span:nth-child(n+3) { display: none; }
+}
+
+/* ---------- crew panel ---------- */
+.crew { background: var(--hn-face); box-shadow: var(--hn-bevel-out); display: flex; flex-direction: column; min-height: 0; }
+.crew-head { font-family: var(--hn-font-ui); font-size: 12px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--hn-ink);
+  padding: 6px 10px; box-shadow: inset 0 -1px 0 var(--hn-bevel-shadow); display: flex; justify-content: space-between; }
+.crew-list { overflow: auto; padding: 6px; display: grid; gap: 2px; align-content: start; }
+.mate { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 10px; align-items: center; padding: 6px; border: 0; background: none; text-align: left; cursor: pointer; width: 100%; color: var(--hn-ink); }
+.mate:hover { background: var(--hn-face-soft); }
+.mate[aria-current="true"] { background: var(--hn-card); box-shadow: var(--hn-bevel-in); }
+.tile { font-family: var(--hn-font-px); font-size: 14px; color: #fff; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+  border: 2px solid var(--hn-hard); box-shadow: 2px 2px 0 var(--hn-hard); flex: 0 0 auto; }
+.tile.lg { width: 40px; height: 40px; font-size: 20px; box-shadow: 3px 3px 0 var(--hn-hard); }
+.bot-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.bot-line b { font-family: var(--hn-font-ui); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bot-state { font-family: var(--hn-font-ui); font-size: 11px; color: var(--hn-mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 5px; }
+.dot { width: 7px; height: 7px; flex: 0 0 auto; background: var(--hn-disabled); }
+.dot.idle { background: var(--hn-success); }
+.dot.working, .dot.chatting, .dot.queued { background: var(--hn-signal); }
+.dot.needs_approval { background: var(--hn-warning); }
+.model { font-family: var(--hn-font-ui); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--hn-mute); box-shadow: var(--hn-bevel-well); padding: 0 5px; line-height: 16px; flex: 0 0 auto; }
+.crew-foot { margin-top: auto; padding: 8px; box-shadow: inset 0 1px 0 var(--hn-bevel-hilite); }
+.crew-foot .hn-btn { width: 100%; min-height: 32px; padding: 4px 10px; font-size: 13px; }
+
+/* ---------- shared bits ---------- */
+.hn-btn.sm { min-height: 28px; padding: 3px 10px; font-size: 12px; }
+.hn-btn.danger { color: var(--hn-warning); }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.meta { font-family: var(--hn-font-ui); font-size: 12px; color: var(--hn-mute); }
+.field { display: grid; gap: 4px; font-family: var(--hn-font-ui); font-size: 12px; font-weight: 700; color: var(--hn-ink); text-transform: uppercase; letter-spacing: .4px; }
+.field .hint { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--hn-mute); }
+.field .hn-input, .field .hn-select, .field .hn-textarea { width: 100%; text-transform: none; letter-spacing: 0; font-weight: 400; }
+.hn-textarea { resize: vertical; line-height: 1.5; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; align-items: start; }
+.checks { display: flex; flex-wrap: wrap; gap: 4px 14px; font-family: var(--hn-font-ui); font-size: 13px; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--hn-ink); }
+.checks label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.checks label.off { color: var(--hn-disabled); cursor: not-allowed; }
+.empty { display: grid; gap: 8px; justify-items: center; text-align: center; padding: 48px 16px; margin: auto; max-width: 440px; }
+.empty p { margin: 0; font-size: 14px; }
+.st { font-family: var(--hn-font-ui); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; padding: 1px 7px; border-radius: var(--hn-r-pill); background: var(--hn-face-soft); color: var(--hn-mute); white-space: nowrap; }
+.st.queued, .st.working, .st.waiting { background: var(--hn-info-soft); color: var(--hn-info); }
+.st.needs_approval, .st.blocked, .st.failed { background: var(--hn-warning-soft); color: var(--hn-warning); }
+.st.done { background: var(--hn-success-soft); color: var(--hn-success-text); }
+.hn-code-block { margin: 0; white-space: pre-wrap; overflow-wrap: break-word; font-size: 12px; padding: 10px 14px; }
+
+/* ---------- chat ---------- */
+.chat-head { display: flex; align-items: center; gap: 14px; padding: 14px 20px; background: var(--hn-card); box-shadow: inset 0 -1px 0 var(--hn-hairline); }
+.chat-head .who { min-width: 0; flex: 1; display: grid; gap: 2px; }
+.chat-head .who p { margin: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.msgs { flex: 1; overflow: auto; padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+.msg { max-width: min(640px, 86%); display: grid; gap: 4px; }
+.msg .meta { font-size: 11px; }
+.msg .text { white-space: pre-wrap; overflow-wrap: break-word; font-size: 15px; line-height: 1.6; padding: 10px 14px; border-radius: var(--hn-r-card); }
+.msg.bot { align-self: flex-start; }
+.msg.bot .text { background: var(--hn-card); border: 2px solid var(--hn-hairline); color: var(--hn-body); }
+.msg.you { align-self: flex-end; justify-items: end; }
+.msg.you .text { background: var(--hn-ink); color: var(--hn-canvas); }
+.msg.system { align-self: center; font-family: var(--hn-font-ui); font-size: 12px; color: var(--hn-mute); box-shadow: var(--hn-bevel-well); background: var(--hn-face-soft); padding: 3px 10px; }
+.proposal { align-self: flex-start; max-width: min(640px, 92%); background: var(--hn-card); padding: 16px; display: grid; gap: 10px; }
+.proposal p { margin: 0; color: var(--hn-ink); }
+.proposal.done { border-color: var(--hn-hairline); box-shadow: none; }
+.thinking { align-self: flex-start; display: flex; align-items: center; gap: 10px; }
+.thinking .hn-progress { width: 66px; height: 14px; }
+.thinking .hn-progress > i { width: 10px; animation: seg 1.4s steps(1) infinite; }
+.thinking .hn-progress > i:nth-child(2) { animation-delay: .2s; } .thinking .hn-progress > i:nth-child(3) { animation-delay: .4s; }
+.thinking .hn-progress > i:nth-child(4) { animation-delay: .6s; } .thinking .hn-progress > i:nth-child(5) { animation-delay: .8s; }
+@keyframes seg { 0% { opacity: .15; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .thinking .hn-progress > i { animation: none; } }
+.ideas { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 20px 12px; }
+.composer { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 12px 20px 16px; background: var(--hn-face); box-shadow: inset 0 1px 0 var(--hn-bevel-hilite); align-items: end; }
+.composer .hn-textarea { min-height: 42px; max-height: 180px; width: 100%; }
+
+/* ---------- markdown in replies ---------- */
+.msg .text.md { white-space: normal; }
+.md > :first-child { margin-top: 0; } .md > :last-child { margin-bottom: 0; }
+.md p, .md ul, .md ol, .md blockquote, .md pre, .md table { margin: 0 0 10px; }
+.md ul, .md ol { padding-left: 22px; }
+.md li + li { margin-top: 2px; }
+.md h3, .md h4, .md h5, .md h6 { font-family: var(--hn-font-ui); font-size: 14px; font-weight: 700; color: var(--hn-ink); margin: 12px 0 6px; text-shadow: none; }
+.md code { font-family: var(--hn-font-mono); font-size: .88em; background: var(--hn-face-soft); color: var(--hn-ink); padding: 1px 5px; }
+.md pre.md-code { background: var(--hn-dark); color: #f6efdc; border-radius: var(--hn-r-card); box-shadow: var(--hn-bevel-well); padding: 10px 14px; overflow-x: auto; font-size: 12.5px; }
+.md pre.md-code code { background: none; color: inherit; padding: 0; }
+.md blockquote { border-left: 3px solid var(--hn-hairline); padding-left: 12px; color: var(--hn-mute); }
+.md a { color: var(--hn-link); }
+.md hr { border: 0; border-top: 1px solid var(--hn-hairline); margin: 12px 0; }
+.md table.md-table { border-collapse: collapse; font-size: 13px; display: block; overflow-x: auto; }
+.md .md-table th { font-family: var(--hn-font-ui); font-size: 11px; text-transform: uppercase; letter-spacing: .4px; text-align: left; color: var(--hn-ink); background: var(--hn-face); box-shadow: var(--hn-bevel-out); padding: 4px 10px; }
+.md .md-table td { padding: 5px 10px; border-bottom: 1px solid var(--hn-hairline-soft); }
+
+/* ---------- board ---------- */
+.newtask { display: grid; grid-template-columns: 170px minmax(0, 1fr) 150px auto; gap: 8px; align-items: center; }
+@media (max-width: 900px) { .newtask { grid-template-columns: minmax(0, 1fr); } }
+.board { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; align-items: start; }
+.col { background: var(--hn-face); box-shadow: var(--hn-bevel-out); min-width: 0; }
+.col-head { display: flex; justify-content: space-between; font-family: var(--hn-font-ui); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--hn-ink); padding: 6px 10px; box-shadow: inset 0 -1px 0 var(--hn-bevel-shadow); }
+.col-body { padding: 8px; display: grid; gap: 8px; }
+.col-body .meta { padding: 4px 2px; }
+.tcard { background: var(--hn-card); border: 2px solid var(--hn-hairline); border-radius: var(--hn-r-card); padding: 10px; display: grid; gap: 4px; text-align: left; cursor: pointer; width: 100%; color: var(--hn-body); }
+.tcard:hover { border-color: var(--hn-ink); }
+.tcard b { font-size: 14px; font-weight: 600; color: var(--hn-ink); }
+.tcard .last { font-size: 12px; color: var(--hn-mute); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* ---------- approvals ---------- */
+.apcard { background: var(--hn-card); padding: 16px; display: grid; gap: 10px; }
+
+/* ---------- settings property sheet ---------- */
+.sheet .hn-tab-panel { display: grid; gap: 16px; }
+.hn-table td.num { text-align: right; font-family: var(--hn-font-mono); }
+
+/* ---------- dialogs as NT windows ---------- */
+dialog.hn-window { border: 0; padding: 3px; width: min(640px, 94vw); color: var(--hn-body); }
+dialog.hn-window::backdrop { background: rgba(31, 35, 46, .35); }
+[data-mode="neon"] dialog.hn-window::backdrop { background: rgba(0, 0, 0, .55); }
+.dlg-body { padding: 16px; display: grid; gap: 14px; max-height: min(78vh, 760px); overflow: auto; background: var(--hn-face); margin: 0; }
+.dlg-foot { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding-top: 4px; }
+.hist { display: grid; gap: 0; }
+.hist > div { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--hn-hairline-soft); font-size: 13px; }
+.hist time { font-family: var(--hn-font-ui); font-size: 11px; color: var(--hn-mute); }
+.hist p { margin: 0; white-space: pre-wrap; overflow-wrap: break-word; }
+.hist b { font-family: var(--hn-font-ui); font-size: 12px; color: var(--hn-ink); }
+.toast { position: fixed; bottom: 52px; left: 50%; transform: translateX(-50%); z-index: 20; }
+.toast .hn-titlebar { font-size: 12px; }
+.toast .body { background: var(--hn-face); padding: 8px 14px; font-family: var(--hn-font-ui); font-size: 13px; color: var(--hn-ink); }
+</style>
+</head>
+<body>
+<div class="splash" id="splash" role="status" aria-label="Loading NAAICO Bot Crew">
+  <a class="naaico" href="https://naaico.com" target="_blank" rel="noopener noreferrer" aria-label="NAAICO"><b>N</b><b>A</b><b>A</b><b>I</b><b>C</b><b>O</b></a>
+  <div class="splash-note" id="splashNote"></div>
+</div>
+<div class="app hn-window">
+  <div class="hn-titlebar">
+    <span class="hn-title-text" id="title">NAAICO Bot Crew</span>
+    <button class="hn-titlebar-btn" id="mode" type="button" title="Switch Dawn / Neon">Neon</button>
+  </div>
+  <nav class="menubar" id="menu" aria-label="Views">
+    <button class="menu" type="button" data-v="chat" aria-current="page">Chat</button>
+    <button class="menu" type="button" data-v="board">Board</button>
+    <button class="menu" type="button" data-v="approvals">Approvals <span class="hn-badge--red" id="apCount" hidden></span></button>
+    <button class="menu" type="button" data-v="routines">Routines</button>
+    <button class="menu" type="button" data-v="settings">Settings</button>
+    <span class="spacer"></span>
+  </nav>
+  <div class="workspace">
+    <aside class="crew" aria-label="Crew">
+      <div class="crew-head"><span>Crew</span><span id="crewCount"></span></div>
+      <div class="crew-list" id="bots"></div>
+      <div class="crew-foot"><button class="hn-btn" id="newBot" type="button">New bot…</button></div>
+    </aside>
+    <main class="client flush" id="view"></main>
+  </div>
+  <div class="hn-statusbar" aria-live="polite">
+    <span id="sRunner">Connecting…</span>
+    <span id="sWork"></span>
+    <span id="sFive"></span>
+    <span id="sWeek"></span>
+    <span class="grow" id="sLast"></span>
+  </div>
+</div>
+
+<dialog class="hn-window" id="dlg" aria-labelledby="dlgTitle">
+  <div class="hn-titlebar"><span class="hn-title-text" id="dlgTitle"></span><button class="hn-titlebar-btn" type="button" id="dlgClose" aria-label="Close">×</button></div>
+  <form class="dlg-body" id="dlgBody" method="dialog"></form>
+</dialog>
+<div class="toast hn-window" id="toast" role="status" hidden><div class="hn-titlebar"><span class="hn-title-text">NAAICO Bot Crew</span></div><div class="body" id="toastText"></div></div>
+
+<script type="module">
+import { md } from '/markdown.js'
+const S = { state: null, view: 'chat', bot: null, chat: null, chatStamp: '' }
+const $ = id => document.getElementById(id)
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+const when = iso => { if (!iso) return ''; const d = new Date(iso); return new Date().toDateString() === d.toDateString() ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }
+const money = n => '$' + (n || 0).toFixed(2)
+const STATE_TEXT = { working: 'Working', needs_approval: 'Needs approval', chatting: 'Replying', queued: 'Queued', idle: 'Idle' }
+const TILES = ['--hn-tile-1', '--hn-tile-2', '--hn-tile-3', '--hn-tile-4', '--hn-tile-5']
+const tileColor = slug => `var(${TILES[[...slug].reduce((a, c) => a + c.charCodeAt(0), 0) % TILES.length]})`
+const tile = (b, lg) => `<span class="tile${lg ? ' lg' : ''}" style="background:${tileColor(b.slug)}" aria-hidden="true">${esc(b.name[0].toUpperCase())}</span>`
+const botBy = slug => S.state?.bots.find(b => b.slug === slug)
+const isMgr = slug => slug === S.state?.config.managerSlug
+
+// ---------- Dawn / Neon ----------
+const media = matchMedia('(prefers-color-scheme: dark)')
+function storedMode() { try { return localStorage.getItem('crew-mode') } catch { return null } }
+function applyMode() {
+  const mode = storedMode() || (media.matches ? 'neon' : 'dawn')
+  document.documentElement.dataset.mode = mode
+  $('mode').textContent = mode === 'neon' ? 'Dawn' : 'Neon'
+}
+$('mode').onclick = () => {
+  const next = document.documentElement.dataset.mode === 'neon' ? 'dawn' : 'neon'
+  try { localStorage.setItem('crew-mode', next) } catch {}
+  applyMode()
+}
+media.addEventListener('change', applyMode)
+applyMode()
+
+// Deep links: #board, #approvals, #settings/limits, #chat/inbox, plus /neon or /dawn to force a mode.
+const LINK = location.hash.slice(1).split('/').filter(Boolean)
+if (['chat', 'board', 'approvals', 'routines', 'settings'].includes(LINK[0])) S.view = LINK[0]
+if (S.view === 'chat' && LINK[1] && !['neon', 'dawn'].includes(LINK[1])) S.bot = LINK[1]
+if (LINK.includes('neon') || LINK.includes('dawn')) { document.documentElement.dataset.mode = LINK.includes('neon') ? 'neon' : 'dawn'; $('mode').textContent = LINK.includes('neon') ? 'Dawn' : 'Neon' }
+
+async function api(method, path, body) {
+  const res = await fetch('/api/' + path, { method, headers: { 'content-type': 'application/json', 'x-bots': '1' }, body: body === undefined ? undefined : JSON.stringify(body) })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || res.statusText)
+  return data
+}
+function toast(text) { $('toastText').textContent = text; $('toast').hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => ($('toast').hidden = true), 3200) }
+async function act(fn, done) { try { const r = await fn(); if (done) toast(done); return r } catch (e) { toast(e.message) } }
+
+// ---------- shell ----------
+function renderShell() {
+  const st = S.state
+  const mgr = st.config.managerSlug
+  const bots = [...st.bots].sort((a, b) => (a.slug === mgr ? -1 : b.slug === mgr ? 1 : a.name.localeCompare(b.name)))
+  $('crewCount').textContent = st.bots.length
+  $('title').textContent = `NAAICO Bot Crew — ${st.bots.length} bots`
+  $('bots').innerHTML = bots.map(b => `
+    <button type="button" class="mate" data-bot="${esc(b.slug)}" aria-current="${b.slug === S.bot && S.view === 'chat'}">
+      ${tile(b)}
+      <span style="min-width:0;display:grid;gap:2px">
+        <span class="bot-line"><b>${esc(b.name)}</b><span class="model">${esc(b.modelLabel)}</span></span>
+        <span class="bot-state"><i class="dot ${esc(b.state)}"></i>${esc(b.slug === mgr && b.state === 'idle' ? 'Idle · runs the crew' : (STATE_TEXT[b.state] || b.state) + (b.activity ? ': ' + b.activity : ''))}</span>
+      </span>
+    </button>`).join('')
+  const n = st.approvals.length
+  $('apCount').hidden = !n
+  $('apCount').textContent = n
+  for (const m of $('menu').querySelectorAll('[data-v]')) m.setAttribute('aria-current', m.dataset.v === S.view ? 'page' : 'false')
+
+  // statusbar: runner · work · spend meter · last event
+  const alive = st.runner.alive
+  $('sRunner').innerHTML = `<span class="hn-badge" style="${alive && !st.config.paused ? 'background:var(--hn-success-soft);color:var(--hn-success-text)' : 'background:var(--hn-warning-soft);color:var(--hn-warning)'}">${alive ? (st.config.paused ? 'Paused' : 'Runner on') : 'Runner off'}</span>${alive ? '' : '<span>npm run runner</span>'}`
+  const working = st.tasks.filter(t => t.status === 'working' || t.status === 'needs_approval').length
+  const queued = st.tasks.filter(t => t.status === 'queued').length
+  $('sWork').textContent = `${working} working · ${queued} queued`
+  const meter = (label, w) => {
+    const lit = w.percent === undefined ? 0 : Math.min(10, Math.ceil(w.percent / 10))
+    return `<span>${label}</span><span class="hn-progress" aria-hidden="true">${Array.from({ length: 10 }, (_, i) => `<i class="${i < lit ? '' : 'off'}"></i>`).join('')}</span><span>${w.percent === undefined ? 'no reading yet' : `${w.percent}% · crew stops at ${w.cap}%`}</span>`
+  }
+  $('sFive').innerHTML = meter('5-hour', st.usage.fiveHour)
+  $('sWeek').innerHTML = meter('Week', st.usage.weekly)
+  $('sFive').title = st.usage.fiveHour.resetsAt ? 'Resets ' + when(st.usage.fiveHour.resetsAt) : ''
+  $('sWeek').title = st.usage.weekly.resetsAt ? 'Resets ' + when(st.usage.weekly.resetsAt) : ''
+  const last = st.tasks[0]
+  $('sLast').innerHTML = st.usage.paused ? `<span class="limit-note">Crew paused: ${esc(st.usage.paused)}</span>`
+    : esc(last ? `${when(last.updatedAt)} · ${botBy(last.owner)?.name || last.owner}: ${last.last || last.title}` : 'No activity yet')
+}
+$('bots').addEventListener('click', e => { const b = e.target.closest('[data-bot]'); if (!b) return; S.bot = b.dataset.bot; S.chat = null; S.chatStamp = ''; setView('chat') })
+$('newBot').addEventListener('click', () => openBot(null))
+$('menu').addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (b) setView(b.dataset.v) })
+function setView(v) { S.view = v; $('view').className = 'client' + (v === 'chat' ? ' flush' : ''); render(true) }
+
+// ---------- chat ----------
+async function loadChat() { if (!S.bot) return; S.chat = await api('GET', 'chats/' + S.bot); renderChat() }
+const ACTION = { create_bot: 'New bot', update_bot: 'Change bot', delete_bot: 'Delete bot', add_routine: 'New routine', update_config: 'Settings' }
+function proposalCard(m) {
+  const p = m.proposal
+  const obj = p.bot || p.routine || p.config || (p.slug ? { bot: p.slug } : null)
+  const detail = obj ? Object.entries(obj).map(([k, v]) => `${k.padEnd(12)} ${Array.isArray(v) ? v.join(', ') : typeof v === 'object' ? JSON.stringify(v) : v}`).join('\n') : ''
+  const done = p.state !== 'pending'
+  const badge = { applied: '<span class="st done">Applied</span>', failed: '<span class="st failed">Not applied</span>', discarded: '<span class="st">Discarded</span>' }[p.state] || ''
+  return `<div class="proposal hn-card--hard${done ? ' done' : ''}">
+    <div class="row"><span class="hn-eyebrow">Proposal · ${esc(ACTION[p.action] || p.action)}</span>${badge}</div>
+    <p>${esc(p.summary)}</p>
+    ${detail ? `<pre class="hn-code-block">${esc(detail)}</pre>` : ''}
+    ${done ? `<span class="meta">${esc(p.outcome || '')}</span>` : `<div class="row"><button class="hn-btn hn-btn--primary sm" type="button" data-apply="${esc(m.id)}">Apply</button><button class="hn-btn sm" type="button" data-discard="${esc(m.id)}">Discard</button></div>`}
+  </div>`
+}
+function renderChat() {
+  const v = $('view')
+  const bot = botBy(S.bot)
+  if (!bot) { v.innerHTML = '<div class="empty"><h2>No bots yet</h2><p>Create one with New bot.</p></div>'; return }
+  const thread = S.chat
+  const draft = $('draft')?.value ?? ''
+  const hadFocus = document.activeElement?.id === 'draft'
+  const busy = thread && thread.status !== 'idle'
+  const mgr = isMgr(bot.slug)
+  const ideas = mgr
+    ? ['What is everyone working on?', 'Make a Recruiter bot on Sonnet that screens candidates from Gmail', 'Switch Inbox to Sonnet', 'Every weekday at 8:30, have Calendar send me a morning brief']
+    : ['What can you do?', 'What do you remember about how I like things?']
+  v.innerHTML = `
+    <header class="chat-head">
+      ${tile(bot, true)}
+      <div class="who"><div class="row"><h2>${esc(bot.name)}</h2><span class="model">${esc(bot.modelLabel)} · ${esc(bot.effort || S.state.defaultEffort)}</span></div><p>${esc(bot.job)}</p></div>
+      <button class="hn-btn sm" id="editBot" type="button">Edit bot…</button>
+      <button class="hn-btn sm" id="clearChat" type="button">New conversation</button>
+    </header>
+    <div class="msgs" id="msgs">
+      ${!thread ? '<span class="meta">Loading…</span>' : !thread.messages.length
+        ? `<div class="empty"><h2>${mgr ? 'Talk to the crew' : 'Say hello'}</h2><p>${mgr ? 'Ask for anything. The Manager splits work across the crew, and proposes new bots, model changes and routines for you to apply.' : `Ask ${esc(bot.name)} a question or give it work. Bigger jobs go on the board and run in the background.`}</p></div>`
+        : thread.messages.map(m => m.proposal ? proposalCard(m)
+          : m.role === 'system' ? `<div class="msg system">${esc(m.text)}</div>`
+          : m.role === 'you' ? `<div class="msg you"><span class="meta">You · ${esc(when(m.at))}</span><div class="text">${esc(m.text)}</div></div>`
+          : `<div class="msg bot"><span class="meta">${esc(bot.name)} · ${esc(when(m.at))}${m.taskId ? ` · <a href="#" data-open-task="${esc(m.taskId)}">${esc(m.taskId)}</a>` : ''}</span><div class="text md">${md(m.text)}</div></div>`).join('')}
+      ${busy ? `<div class="thinking"><span class="hn-progress" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span><span class="meta">${!S.state.runner.alive ? 'Waiting for the runner to start' : `${esc(bot.name)} is thinking`}</span></div>` : ''}
+    </div>
+    ${thread && !thread.messages.length ? `<div class="ideas">${ideas.map(i => `<button class="hn-btn sm" type="button" data-idea="${esc(i)}">${esc(i)}</button>`).join('')}</div>` : ''}
+    <form class="composer" id="composer">
+      <textarea class="hn-textarea" id="draft" rows="1" aria-label="Message ${esc(bot.name)}" placeholder="Message ${esc(bot.name)}. Enter sends, Shift+Enter adds a line."></textarea>
+      <button class="hn-btn hn-btn--primary" type="submit">Send</button>
+    </form>`
+  $('draft').value = draft
+  if (hadFocus) $('draft').focus()
+  const msgs = $('msgs'); msgs.scrollTop = msgs.scrollHeight
+  $('editBot').onclick = () => openBot(bot.slug)
+  $('clearChat').onclick = () => act(async () => { S.chat = await api('DELETE', 'chats/' + bot.slug); renderChat() }, 'Started a new conversation')
+  $('composer').onsubmit = e => {
+    e.preventDefault()
+    const text = $('draft').value.trim(); if (!text) return
+    $('draft').value = ''
+    act(async () => { S.chat = await api('POST', 'chats/' + bot.slug, { text }); renderChat(); $('draft').focus() })
+  }
+  $('draft').onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('composer').requestSubmit() } }
+  v.querySelectorAll('[data-idea]').forEach(b => (b.onclick = () => { $('draft').value = b.dataset.idea; $('draft').focus() }))
+  v.querySelectorAll('[data-open-task]').forEach(a => (a.onclick = e => { e.preventDefault(); openTask(a.dataset.openTask) }))
+  v.querySelectorAll('[data-apply],[data-discard]').forEach(b => (b.onclick = () => act(async () => {
+    S.chat = await api('POST', `chats/${bot.slug}/proposals/${b.dataset.apply || b.dataset.discard}`, { apply: !!b.dataset.apply }); renderChat()
+  })))
+}
+
+// ---------- board ----------
+const COLS = [
+  ['Queued', t => t.status === 'queued'],
+  ['Working', t => t.status === 'working' || t.status === 'waiting'],
+  ['Needs you', t => t.status === 'needs_approval' || t.status === 'blocked'],
+  ['Done', t => t.status === 'done'],
+  ['Stopped', t => t.status === 'failed' || t.status === 'cancelled'],
+]
+function renderBoard() {
+  const st = S.state
+  $('view').innerHTML = `<div class="page">
+    <div class="page-head"><div><h1>Board</h1><p>Everything the crew is doing. The runner picks up queued tasks; handovers and sub-tasks are in each task's history.</p></div></div>
+    <form class="newtask hn-tab-panel" id="newTask">
+      <select class="hn-select" id="ntOwner" aria-label="Assign to">${st.bots.map(b => `<option value="${esc(b.slug)}" ${isMgr(b.slug) ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select>
+      <input class="hn-input" id="ntText" placeholder="Describe a task, e.g. triage today's email and draft replies" aria-label="Task">
+      <select class="hn-select" id="ntModel" aria-label="Model"><option value="">Bot's own model</option>${st.models.map(m => `<option value="${m.id}">${esc(m.label)}</option>`).join('')}</select>
+      <button class="hn-btn hn-btn--primary" type="submit">Add task</button>
+    </form>
+    <div class="board">${COLS.map(([name, f]) => { const list = st.tasks.filter(f).slice(0, name === 'Done' ? 12 : 40); return `
+      <section class="col"><div class="col-head"><span>${name}</span><span>${list.length}</span></div><div class="col-body">
+        ${list.map(t => `<button type="button" class="tcard" data-task="${esc(t.id)}"><span class="row"><span class="st ${esc(t.status)}">${esc(t.status.replace('_', ' '))}</span><span class="meta">${esc(botBy(t.owner)?.name || t.owner)}</span></span><b>${esc(t.title)}</b><span class="last">${esc(t.last || '')}</span></button>`).join('') || '<span class="meta">Nothing here</span>'}
+      </div></section>` }).join('')}</div></div>`
+  $('newTask').onsubmit = e => {
+    e.preventDefault()
+    const text = $('ntText').value.trim(); if (!text) return toast('Describe the task first.')
+    act(async () => { await api('POST', 'tasks', { owner: $('ntOwner').value, text, model: $('ntModel').value || undefined }); $('ntText').value = '' }, 'Task queued')
+  }
+  $('view').querySelectorAll('[data-task]').forEach(c => (c.onclick = () => openTask(c.dataset.task)))
+}
+
+// ---------- approvals ----------
+function renderApprovals() {
+  const list = S.state.approvals
+  $('view').innerHTML = `<div class="page">
+    <div class="page-head"><div><h1>Approvals</h1><p>Actions that send, delete, publish or need your OK for another reason. "Always allow" saves a rule for that bot only.</p></div></div>
+    ${list.map(a => `<article class="apcard hn-card--hard">
+      <div class="row"><span class="hn-eyebrow">Needs approval</span><span class="meta">${esc(botBy(a.bot)?.name || a.bot)} · ${esc(when(a.createdAt))} · ${esc(a.taskId)}</span></div>
+      <pre class="hn-code-block">${esc(a.summary)}</pre>
+      <div class="row"><button class="hn-btn hn-btn--primary sm" type="button" data-d="allow" data-id="${esc(a.id)}">Allow once</button><button class="hn-btn sm" type="button" data-d="always" data-id="${esc(a.id)}">Always allow</button><button class="hn-btn sm danger" type="button" data-d="deny" data-id="${esc(a.id)}">Deny</button></div>
+    </article>`).join('') || '<div class="empty"><h2>Nothing waiting</h2><p>When a bot needs your OK it shows up here, as a Mac notification, and as a count in the menubar.</p></div>'}
+  </div>`
+  $('view').querySelectorAll('[data-d]').forEach(b => (b.onclick = () => act(() => api('POST', 'approvals/' + b.dataset.id, { decision: b.dataset.d }), b.dataset.d === 'deny' ? 'Denied' : 'Allowed')))
+}
+
+// ---------- routines ----------
+function renderRoutines() {
+  const st = S.state
+  $('view').innerHTML = `<div class="page">
+    <div class="page-head"><div><h1>Routines</h1><p>Work that runs on a schedule. At each time the runner puts a task on the board for the bot.</p></div></div>
+    <form class="hn-tab-panel" id="newRoutine" style="display:grid;gap:12px">
+      <div class="grid2">
+        <label class="field">Bot<select class="hn-select" id="rBot">${st.bots.map(b => `<option value="${esc(b.slug)}">${esc(b.name)}</option>`).join('')}</select></label>
+        <label class="field">When<input class="hn-input" id="rWhen" placeholder="weekdays 08:30"><span class="hint">every 30m · every 2h · daily 08:30 · weekdays 09:00 · mon,wed 10:15 (15 minutes apart at least)</span></label>
+      </div>
+      <label class="field">Title<input class="hn-input" id="rTitle" placeholder="Morning brief"></label>
+      <label class="field">Instructions<textarea class="hn-textarea" id="rPrompt" rows="3" placeholder="Summarize today's meetings, flag conflicts and list emails that need a reply."></textarea></label>
+      <div><button class="hn-btn hn-btn--primary" type="submit">Add routine</button></div>
+    </form>
+    <table class="hn-table"><thead><tr><th>Routine</th><th>Bot</th><th>When</th><th>Last run</th><th></th></tr></thead><tbody>
+      ${st.routines.map(r => `<tr><td><b>${esc(r.title)}</b><div class="meta" style="white-space:normal">${esc(r.prompt.slice(0, 140))}</div></td><td>${esc(botBy(r.bot)?.name || r.bot)}</td><td class="meta">${esc(r.schedule)}${r.paused ? ' · paused' : ''}</td><td class="meta">${esc(when(r.lastRunAt)) || 'Not yet'}</td>
+        <td><div class="row"><button class="hn-btn sm" type="button" data-pause="${esc(r.id)}" data-p="${r.paused ? '' : '1'}">${r.paused ? 'Resume' : 'Pause'}</button><button class="hn-btn sm danger" type="button" data-del="${esc(r.id)}">Delete</button></div></td></tr>`).join('') || '<tr><td colspan="5" class="meta">No routines yet.</td></tr>'}
+    </tbody></table></div>`
+  $('newRoutine').onsubmit = e => { e.preventDefault(); act(async () => { await api('POST', 'routines', { bot: $('rBot').value, schedule: $('rWhen').value, title: $('rTitle').value, prompt: $('rPrompt').value }); $('newRoutine').reset() }, 'Routine added') }
+  $('view').querySelectorAll('[data-pause]').forEach(b => (b.onclick = () => act(() => api('PATCH', 'routines/' + b.dataset.pause, { paused: !!b.dataset.p }))))
+  $('view').querySelectorAll('[data-del]').forEach(b => (b.onclick = () => act(() => api('DELETE', 'routines/' + b.dataset.del), 'Routine deleted')))
+}
+
+// ---------- settings: NT property sheet ----------
+let sheetTab = ['rules', 'limits', 'connectors'].includes(LINK[1]) ? LINK[1] : 'rules'
+function renderSettings() {
+  const st = S.state, c = st.config
+  const tabs = [['rules', 'Crew rules'], ['limits', 'Usage limits'], ['connectors', 'Connectors']]
+  const u = st.usage
+  const row = (name, w) => `<tr><td>${name}</td><td class="num">${w.percent === undefined ? '—' : w.percent + '%'}</td><td class="num">${w.cap}%</td><td class="meta">${w.resetsAt ? when(w.resetsAt) : '—'}</td></tr>`
+  const panel = {
+    rules: `<label class="field">Handovers<select class="hn-select" id="cDeleg"><option value="manager">Through the Manager</option><option value="list">Each bot's own list</option><option value="free">Any bot to any bot</option></select></label>
+      <label class="field">Approvals<select class="hn-select" id="cAppr"><option value="auto">Auto Review: a quick check decides, risky actions ask you</option><option value="ask">Ask me the first time for each kind of action</option><option value="strict">Strict: everything except reading asks</option></select></label>
+      <div class="grid2"><label class="field">Tasks at once<input class="hn-input" type="number" id="cConc" min="1" max="4" step="1" value="${c.concurrency}"></label>
+      <label class="field">Runner<select class="hn-select" id="cPause"><option value="">Running: picks up new work</option><option value="1">Paused: finishes current work only</option></select></label></div>`,
+    limits: `<p style="margin:0">Your bots share your Claude plan's usage with your own chats and Claude Code sessions. The crew stops starting work when either window reaches its limit, and carries on by itself after the window resets, so the rest stays yours.</p>
+      <div class="grid2"><label class="field">5-hour window limit (%)<input class="hn-input" type="number" id="lFive" min="1" max="100" step="1" value="${c.limits.fiveHourPct}"><span class="hint">The crew pauses at this share of your 5-hour usage.</span></label>
+      <label class="field">Weekly limit (%)<input class="hn-input" type="number" id="lWeek" min="1" max="100" step="1" value="${c.limits.weeklyPct}"><span class="hint">The crew pauses at this share of your weekly usage.</span></label>
+      <label class="field">Per-task share (%)<input class="hn-input" type="number" id="lRun" min="1" max="100" step="1" value="${c.limits.perRunPct}"><span class="hint">One task or reply may use at most this much of the 5-hour window, then it waits for you.</span></label></div>
+      <table class="hn-table"><thead><tr><th>Window</th><th style="text-align:right">Used now</th><th style="text-align:right">Crew limit</th><th>Resets</th></tr></thead><tbody>${row('5-hour', u.fiveHour)}${row('Weekly', u.weekly)}</tbody></table>
+      <span class="meta">${u.observedAt ? `Last reading ${esc(when(u.observedAt))}, from ${u.source === 'claude-code' ? 'your Claude Code session' : 'a bot run'}.` : 'No reading yet: the first bot run or Claude Code session with the mod reports it.'}</span>`,
+    connectors: `<p style="margin:0">Bots can use the connectors on your Claude account. Each bot only loads the ones you give it, which keeps runs fast and cheap.</p>
+      <table class="hn-table"><thead><tr><th>Connector</th><th>Status</th></tr></thead><tbody>
+      ${st.connectors.map(x => `<tr><td>${esc(x.label)}</td><td><span class="st ${x.available ? 'done' : 'failed'}">${x.available ? (x.status === 'connected' ? 'Connected' : 'Connecting') : 'Sign in at claude.ai'}</span></td></tr>`).join('') || '<tr><td colspan="2" class="meta">Start the runner to list your connectors.</td></tr>'}</tbody></table>
+      <span class="meta">Last checked ${esc(when(st.connectorsCheckedAt)) || 'never'}</span>`,
+  }
+  $('view').innerHTML = `<div class="page sheet">
+    <div class="page-head"><div><h1>Settings</h1><p>How work moves through the crew, how much of your plan it may use, and what it can reach.</p></div></div>
+    <form id="cfg">
+      <div class="hn-tabs" role="tablist">${tabs.map(([id, label]) => `<button type="button" role="tab" class="hn-tab${id === sheetTab ? ' hn-tab--active' : ''}" aria-selected="${id === sheetTab}" data-tab="${id}">${label}</button>`).join('')}</div>
+      <div class="hn-tab-panel">${panel[sheetTab]}
+        ${sheetTab === 'connectors' ? '' : '<div><button class="hn-btn hn-btn--primary" type="submit">Save</button></div>'}</div>
+    </form></div>`
+  $('view').querySelectorAll('[data-tab]').forEach(b => (b.onclick = () => { sheetTab = b.dataset.tab; renderSettings() }))
+  if ($('cDeleg')) { $('cDeleg').value = c.delegation; $('cAppr').value = c.approvals; $('cPause').value = c.paused ? '1' : '' }
+  $('cfg').onsubmit = e => {
+    e.preventDefault()
+    const body = sheetTab === 'rules'
+      ? { delegation: $('cDeleg').value, approvals: $('cAppr').value, concurrency: Number($('cConc').value), paused: !!$('cPause').value }
+      : { limits: { fiveHourPct: Number($('lFive').value), weeklyPct: Number($('lWeek').value), perRunPct: Number($('lRun').value) } }
+    act(() => api('PUT', 'config', body), 'Settings saved')
+  }
+}
+
+// ---------- dialogs ----------
+function openDialog(title, html) {
+  $('dlgTitle').textContent = title
+  $('dlgBody').innerHTML = html
+  $('dlg').showModal()
+}
+$('dlgClose').onclick = () => $('dlg').close()
+
+async function openTask(id) {
+  const t = await act(() => api('GET', 'tasks/' + id)); if (!t) return
+  const open = !['done', 'failed', 'cancelled'].includes(t.status)
+  openDialog(`Task ${t.id}`, `
+    <div class="row"><span class="st ${esc(t.status)}">${esc(t.status.replace('_', ' '))}</span><span class="meta">${esc(botBy(t.owner)?.name || t.owner)} · from ${esc(t.createdBy)}${t.parentId ? ' · sub-task of ' + esc(t.parentId) : ''} · ${t.runs} run${t.runs === 1 ? '' : 's'}</span></div>
+    <h3 style="font-size:18px">${esc(t.title)}</h3>
+    ${t.result ? `<div class="hn-card" style="padding:12px 14px"><span class="meta">Result</span><div class="md">${md(t.result)}</div></div>` : ''}
+    <div class="hist">${t.history.map(e => `<div><time>${esc(when(e.at))}</time><p><b>${esc(e.actor)}</b> ${esc(e.text)}</p></div>`).join('')}</div>
+    ${open ? `<label class="field">Reply or add instructions<textarea class="hn-textarea" id="replyText" rows="2" placeholder="${t.status === 'blocked' ? 'Answer the question to unblock it' : 'The bot reads this on its next run'}"></textarea></label>` : ''}
+    <div class="dlg-foot"><span>${open ? '<button class="hn-btn danger" id="cancelTask" type="button">Cancel task</button>' : ''}</span>
+      <span class="row"><button class="hn-btn" type="button" id="closeTask">Close</button>${open ? '<button class="hn-btn hn-btn--primary" id="sendReply" type="button">Send reply</button>' : ''}</span></div>`)
+  $('closeTask').onclick = () => $('dlg').close()
+  if (open) {
+    $('sendReply').onclick = () => { const text = $('replyText').value.trim(); if (!text) return toast('Type a reply first.'); act(async () => { await api('POST', `tasks/${id}/reply`, { text }); $('dlg').close() }, 'Reply sent') }
+    $('cancelTask').onclick = () => act(async () => { await api('POST', `tasks/${id}/cancel`); $('dlg').close() }, 'Task cancelled')
+  }
+}
+
+function openBot(slug) {
+  const st = S.state
+  const b = slug ? botBy(slug) : null
+  const has = t => !!b && b.tools.some(x => x.toLowerCase() === t.toLowerCase())
+  openDialog(b ? `Bot properties — ${b.name}` : 'New bot', `
+    <div class="grid2">
+      <label class="field">Name<input class="hn-input" name="name" value="${esc(b?.name || '')}" ${b ? 'readonly' : ''} required placeholder="Recruiter"></label>
+      <label class="field">Model<select class="hn-select" name="model">${st.models.map(m => `<option value="${m.id}" ${(b?.model || 'sonnet') === m.id ? 'selected' : ''}>${esc(m.label)}</option>`).join('')}</select><span class="hint">Opus for hard work, Sonnet balanced, Haiku fast and cheap</span></label>
+      <label class="field">Effort<select class="hn-select" name="effort">${st.efforts.map(e => `<option value="${e}" ${(b?.effort || st.defaultEffort) === e ? 'selected' : ''}>${e}${e === st.defaultEffort ? ' (default)' : ''}</option>`).join('')}</select><span class="hint">How hard it thinks. Higher effort uses more of your plan.</span></label>
+    </div>
+    <label class="field">Job<input class="hn-input" name="job" value="${esc(b?.job || '')}" required placeholder="Screen inbound candidates and schedule first calls"></label>
+    <div class="field">Connectors
+      <div class="checks">${st.connectors.map(c => `<label class="${c.available ? '' : 'off'}" title="${c.available ? '' : 'Sign in to ' + esc(c.label) + ' at claude.ai first'}"><input type="checkbox" name="tool" value="${esc(c.label)}" ${has(c.label) ? 'checked' : ''} ${c.available ? '' : 'disabled'}>${esc(c.label)}</label>`).join('') || '<span class="hint">Start the runner once to list your connectors.</span>'}</div>
+      <span class="hint">From your Claude account. Greyed-out ones need signing in at claude.ai.</span></div>
+    <div class="field">Abilities<div class="checks">${st.abilities.map(a => `<label><input type="checkbox" name="tool" value="${esc(a)}" ${has(a) ? 'checked' : ''}>${esc(a)}</label>`).join('')}</div></div>
+    ${st.config.delegation === 'list' ? `<div class="field">Can hand tasks to<div class="checks">${st.bots.filter(x => x.slug !== b?.slug).map(x => `<label><input type="checkbox" name="to" value="${esc(x.slug)}" ${b?.canHandTo.includes(x.slug) ? 'checked' : ''}>${esc(x.name)}</label>`).join('')}</div></div>` : ''}
+    <label class="field">Working folder<input class="hn-input" name="workdir" value="${esc(b?.workdir || '')}" placeholder="~/workspaces (empty: its own folder)"></label>
+    <label class="field">Extra instructions<textarea class="hn-textarea" name="instructions" rows="3" placeholder="Anything it should always or never do">${esc(b?.instructions || '')}</textarea></label>
+    <div class="dlg-foot">
+      <span>${b && !isMgr(b.slug) ? '<button class="hn-btn danger" type="button" id="delBot">Delete bot</button>' : ''}</span>
+      <span class="row"><button class="hn-btn" type="button" id="cancelBot">Cancel</button><button class="hn-btn hn-btn--primary" type="submit">${b ? 'Save' : 'Create bot'}</button></span>
+    </div>`)
+  $('cancelBot').onclick = () => $('dlg').close()
+  if ($('delBot')) $('delBot').onclick = () => act(async () => { await api('DELETE', 'bots/' + b.slug); $('dlg').close(); if (S.bot === b.slug) S.bot = st.config.managerSlug }, 'Deleted ' + b.name)
+  $('dlgBody').onsubmit = e => {
+    e.preventDefault()
+    const f = new FormData($('dlgBody'))
+    const data = { name: f.get('name'), job: f.get('job'), model: f.get('model'), effort: f.get('effort'), tools: f.getAll('tool'), workdir: f.get('workdir'), instructions: f.get('instructions') }
+    if (st.config.delegation === 'list') data.canHandTo = f.getAll('to')
+    act(async () => { const saved = await api(b ? 'PUT' : 'POST', b ? 'bots/' + b.slug : 'bots', data); $('dlg').close(); S.bot = saved.slug; S.chat = null; setView('chat') }, b ? 'Saved' : 'Created ' + data.name)
+  }
+}
+
+// ---------- live state ----------
+function render(full) {
+  if (!S.state) return
+  renderShell()
+  if (S.view === 'chat') {
+    const stamp = S.bot && JSON.stringify(S.state.chats[S.bot] || {})
+    if (full || !S.chat || stamp !== S.chatStamp) { S.chatStamp = stamp; if (!S.chat) renderChat(); loadChat() }
+    return
+  }
+  const typing = document.activeElement?.closest('#view form')
+  if (full || (!$('dlg').open && !typing)) ({ board: renderBoard, approvals: renderApprovals, routines: renderRoutines, settings: renderSettings })[S.view]()
+}
+// The splash stays at least long enough for the tiles to snap in, then lifts on the first state.
+const splashShown = Date.now()
+function liftSplash() {
+  if (LINK.includes('splash')) return
+  const wait = Math.max(0, 900 - (Date.now() - splashShown))
+  setTimeout(() => $('splash').classList.add('gone'), LINK.includes('shot') ? 0 : wait)
+}
+setTimeout(() => { if (!S.state) $('splashNote').textContent = 'Waiting for the runner… (npm run runner)' }, 4000)
+function connect() {
+  if (LINK.includes('shot')) {
+    // Screenshot mode: one snapshot, no live stream, so a headless browser can finish loading.
+    return fetch('/api/state').then(r => r.json()).then(st => {
+      S.state = st
+      if (!S.bot || !botBy(S.bot)) S.bot = st.config.managerSlug
+      if (!LINK.includes('splash')) $('splash').classList.add('gone')
+      setView(S.view)
+      if (LINK.includes('newbot')) openBot(null)
+    })
+  }
+  const es = new EventSource('/api/events')
+  es.addEventListener('state', e => {
+    S.state = JSON.parse(e.data)
+    const first = !connect.seen
+    connect.seen = true
+    if (!S.bot || !botBy(S.bot)) S.bot = S.state.config.managerSlug
+    if (first) { setView(S.view); liftSplash() }
+    else render(false)
+  })
+  es.onerror = () => { $('sRunner').textContent = 'Reconnecting…' }
+}
+connect()
+</script>
+</body>
+</html>

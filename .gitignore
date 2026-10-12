@@ -1,0 +1,27 @@
+# Dependencies, logs and local environment
+node_modules/
+*.log
+.DS_Store
+.env
+.env.*
+
+# Never commit a crew store: it holds chats, task history and the browser token.
+# (The real one lives in ~/.claude/bots; these catch copies made by mistake.)
+.bots/
+bots/
+tasks/
+chats/
+approvals/
+limits.json
+web.json
+runner.json
+connectors.json
+
+# Internal and demo files: kept locally, not published
+AUDIT.md
+runner/demo.ts
+docs/internal/
+
+# Written by Claude Code when it loads the mod
+mod/*/.claude-plugin/types/
+mod/*/tsconfig.json
