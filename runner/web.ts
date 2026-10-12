@@ -4,10 +4,11 @@
 // X-Bots header (a cross-site page can't send one without CORS) and a
 // localhost Host header (no DNS rebinding).
 import { randomBytes, timingSafeEqual } from 'node:crypto'
-import { chmod, readFile } from 'node:fs/promises'
+import { createReadStream } from 'node:fs'
+import { chmod, readFile, realpath, stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
-import { join } from 'node:path'
+import { extname, join, sep } from 'node:path'
 
 import {
   ABILITIES,
@@ -32,7 +33,7 @@ import {
   titleFrom,
 } from './core.ts'
 import type { Approval, ChatThread, Connector, Store, UsageLimits, UsageWindows } from './core.ts'
-import { nowIso, RUNNER_DIR } from './node.ts'
+import { expandHome, nowIso, RUNNER_DIR } from './node.ts'
 
 export type WebInfo = { port: number; token: string }
 
@@ -96,10 +97,19 @@ export async function buildState(s: Store) {
     s.runner(),
     s.readJson<{ servers?: Connector[]; checkedAt?: string }>(s.path('connectors.json'), {}),
   ])
-  const chats: Record<string, { status: string; count: number; lastAt?: string }> = {}
+  const seen = await s.readJson<Record<string, string>>(s.path('seen.json'), {})
+  const pending = approvals.filter(a => a.status === 'pending')
+  const chats: Record<string, { status: string; count: number; lastAt?: string; unread: number; approvals: number }> = {}
   for (const b of bots) {
     const t = await readChat(s, b.slug)
-    chats[b.slug] = { status: t.status, count: t.messages.length, lastAt: t.messages[t.messages.length - 1]?.at }
+    const since = seen[b.slug] ?? ''
+    chats[b.slug] = {
+      status: t.status,
+      count: t.messages.length,
+      lastAt: t.messages[t.messages.length - 1]?.at,
+      unread: t.messages.filter(m => m.role !== 'you' && m.at > since).length,
+      approvals: pending.filter(a => a.bot === b.slug).length,
+    }
   }
   const open = tasks.filter(t => !TERMINAL.includes(t.status))
   return {
@@ -147,6 +157,50 @@ function usageView(w: UsageWindows | undefined, limits: UsageLimits, now: Date) 
   }
 }
 
+const MEDIA_TYPES: Record<string, string> = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', avif: 'image/avif',
+  mp4: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime',
+}
+
+/**
+ * Serves an image or video a bot made, so chat can show it. Only media types, and only
+ * from inside the crew store or a bot's working folder (symlinks resolved first).
+ * Supports byte ranges so videos can seek.
+ */
+async function serveFile(s: Store, req: IncomingMessage, res: ServerResponse, raw: string): Promise<void> {
+  const type = MEDIA_TYPES[extname(raw).slice(1).toLowerCase()]
+  if (!type) throw new HttpError(404, 'Only images and video can be shown.')
+  const file = await realpath(expandHome(raw)).catch(() => undefined)
+  if (!file) throw new HttpError(404, 'File not found.')
+  const roots = [s.root, ...(await s.bots()).map(b => b.workdir).filter((w): w is string => !!w).map(expandHome)]
+  const real = (await Promise.all(roots.map(r => realpath(r).catch(() => undefined)))).filter((r): r is string => !!r)
+  if (!real.some(r => file === r || file.startsWith(r.endsWith(sep) ? r : r + sep))) throw new HttpError(403, 'That file is outside the bots\' folders.')
+  const info = await stat(file)
+  if (!info.isFile()) throw new HttpError(404, 'File not found.')
+  const headers: Record<string, string | number> = {
+    'content-type': type,
+    'cache-control': 'private, max-age=60',
+    'accept-ranges': 'bytes',
+    'x-content-type-options': 'nosniff',
+    'content-security-policy': "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'",
+  }
+  const range = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? ''))
+  if (range && (range[1] || range[2])) {
+    let start = range[1] ? Number(range[1]) : info.size - Number(range[2])
+    let end = range[1] && range[2] ? Number(range[2]) : info.size - 1
+    start = Math.max(0, start)
+    end = Math.min(info.size - 1, end)
+    if (start > end) {
+      res.writeHead(416, { 'content-range': `bytes */${info.size}` })
+      return void res.end()
+    }
+    res.writeHead(206, { ...headers, 'content-range': `bytes ${start}-${end}/${info.size}`, 'content-length': end - start + 1 })
+    return void createReadStream(file, { start, end }).pipe(res)
+  }
+  res.writeHead(200, { ...headers, 'content-length': info.size })
+  createReadStream(file).pipe(res)
+}
+
 async function decide(s: Store, id: string, decision: string): Promise<Approval> {
   const a = await s.approval(id)
   if (!a || a.status !== 'pending') throw new HttpError(404, 'That approval is no longer waiting.')
@@ -174,6 +228,13 @@ async function route(s: Store, req: IncomingMessage, url: URL): Promise<unknown>
       if (!text) throw new HttpError(400, 'Type a message first.')
       await postToChat(s, id, text, at)
       return readChat(s, id)
+    }
+    if (method === 'POST' && sub === 'seen') {
+      // Read state lives apart from the thread, so marking a chat read never races the runner's replies.
+      const seen = await s.readJson<Record<string, string>>(s.path('seen.json'), {})
+      seen[id] = at
+      await s.writeJson(s.path('seen.json'), seen)
+      return { seen: at }
     }
     if (method === 'DELETE' && !sub) {
       const cleared: ChatThread = { bot: id, status: 'idle', messages: [] }
@@ -327,13 +388,14 @@ export function startWeb(s: Store, info: WebInfo, host = '127.0.0.1'): Promise<S
           res.writeHead(401, { 'content-type': 'text/html; charset=utf-8' })
           return res.end('<!doctype html><meta charset="utf-8"><title>Office Hours</title><body style="font:16px system-ui;padding:40px;max-width:560px">Open Office Hours with the link from <code>/bot web</code> in Claude Code, or from the runner log.</body>')
         }
-        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'content-security-policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'" })
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'content-security-policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https:; media-src 'self' https:; connect-src 'self'; frame-ancestors 'none'" })
         return res.end(await readFile(join(RUNNER_DIR, 'web', 'index.html'), 'utf8'))
       }
       if (!url.pathname.startsWith('/api/')) throw new HttpError(404, 'Not found.')
       if (!authed) throw new HttpError(401, 'Open the crew with the link from /bot web.')
       if (req.method !== 'GET' && req.headers['x-bots'] !== '1') throw new HttpError(403, 'Missing X-Bots header.')
 
+      if (url.pathname === '/api/file' && req.method === 'GET') return await serveFile(s, req, res, url.searchParams.get('path') ?? '')
       if (url.pathname === '/api/events') {
         res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' })
         let last = ''

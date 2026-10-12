@@ -208,3 +208,70 @@ describe('markdown in replies', async () => {
     assert.equal(md('`<b>`'), '<p><code>&lt;b&gt;</code></p>')
   })
 })
+
+describe('media, artifacts and links in chat', async () => {
+  const { md } = await import('./web/markdown.js')
+  it('shows images and video, from the web or from the bots folders', () => {
+    assert.equal(md('![chart](https://example.com/c.png)'), '<p><a class="md-media-link" href="https://example.com/c.png" target="_blank" rel="noopener noreferrer"><img class="md-media" src="https://example.com/c.png" alt="chart" loading="lazy"></a></p>')
+    assert.match(md('Rendered: ~/marketing/promo.mp4'), /<video class="md-media" controls preload="metadata" src="\/api\/file\?path=~%2Fmarketing%2Fpromo\.mp4"/)
+    assert.match(md('![](file:///Users/x/out/shot.webp)'), /src="\/api\/file\?path=%2FUsers%2Fx%2Fout%2Fshot\.webp"/)
+    assert.match(md('https://cdn.example.com/clip.webm'), /<video class="md-media"/)
+  })
+  it('turns Claude Artifact links into cards and bare links into links', () => {
+    assert.match(md('Here it is: https://claude.ai/artifact/72zxbvWEkLFS2UAR8RNDnW'), /<a class="md-artifact" href="https:\/\/claude\.ai\/artifact\/72zxbvWEkLFS2UAR8RNDnW"[^>]*><span class="md-artifact-kicker">Claude artifact<\/span><span class="md-artifact-title">Claude artifact<\/span>/)
+    assert.match(md('[Launch plan](https://claude.ai/code/artifact/abc-123)'), /md-artifact-title">Launch plan</)
+    assert.equal(md('see https://example.com/docs.'), '<p>see <a href="https://example.com/docs" target="_blank" rel="noopener noreferrer">https://example.com/docs</a>.</p>')
+  })
+  it('stays safe', () => {
+    assert.equal(md('![x](javascript:alert(1))'), '<p>x</p>')
+    assert.doesNotMatch(md('![" onerror="alert(1)](https://e.com/a.png)'), /" onerror="/)
+    assert.equal(md('[pdf](/etc/passwd)'), '<p>pdf</p>')
+    assert.equal(md('\u00000\u0000 plain'), '<p>0 plain</p>')
+  })
+})
+
+describe('files, unread and approvals in chat', () => {
+  it('serves only images and video from the bots folders, with byte ranges', async () => {
+    const { mkdirSync, symlinkSync } = await import('node:fs')
+    const dir = join(root, 'workspace', 'social')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'clip.mp4'), Buffer.from('0123456789'))
+    writeFileSync(join(dir, 'notes.txt'), 'secret')
+    const outside = mkdtempSync(join(tmpdir(), 'outside-'))
+    writeFileSync(join(outside, 'x.png'), 'png')
+    symlinkSync(join(outside, 'x.png'), join(dir, 'escape.png'))
+    const get = (p: string, headers: Record<string, string> = {}) => fetch(`${base}/api/file?path=${encodeURIComponent(p)}`, { headers: { cookie, ...headers } })
+    const ok = await get(join(dir, 'clip.mp4'))
+    assert.equal(ok.status, 200)
+    assert.equal(ok.headers.get('content-type'), 'video/mp4')
+    assert.equal(await ok.text(), '0123456789')
+    const part = await get(join(dir, 'clip.mp4'), { range: 'bytes=2-5' })
+    assert.equal(part.status, 206)
+    assert.equal(part.headers.get('content-range'), 'bytes 2-5/10')
+    assert.equal(await part.text(), '2345')
+    assert.equal((await get(join(dir, 'notes.txt'))).status, 404)
+    assert.equal((await get(join(outside, 'x.png'))).status, 403)
+    assert.equal((await get(join(dir, 'escape.png'))).status, 403)
+    assert.equal((await fetch(`${base}/api/file?path=${encodeURIComponent(join(dir, 'clip.mp4'))}`)).status, 401)
+  })
+
+  it('counts unread replies and approvals per bot, and clears unread when read', async () => {
+    const { saveChat } = await import('./core.ts')
+    const at = (m: number) => new Date(Date.now() - m * 60_000).toISOString()
+    await saveChat(s, { bot: 'calendar', status: 'idle', messages: [
+      { id: 'm1', role: 'you', text: 'hi', at: at(5), answered: true },
+      { id: 'm2', role: 'bot', text: 'hello', at: at(4) },
+      { id: 'm3', role: 'bot', text: '**Done:** booked', at: at(1) },
+    ] })
+    await s.saveApproval({ id: 'a-cal', taskId: 't-9', bot: 'calendar', tool: 'mcp__claude_ai_Google_Calendar__create_event', input: {}, summary: 'create_event', status: 'pending', createdAt: at(1) })
+    let chats = (await call('GET', '/api/state')).data.chats
+    assert.equal(chats.calendar.unread, 2)
+    assert.equal(chats.calendar.approvals, 1)
+    assert.equal((await call('POST', '/api/chats/calendar/seen')).status, 200)
+    chats = (await call('GET', '/api/state')).data.chats
+    assert.equal(chats.calendar.unread, 0)
+    assert.equal(chats.calendar.approvals, 1)
+    const thread = await (await import('./core.ts')).readChat(s, 'calendar')
+    assert.equal(thread.messages.length, 3)
+  })
+})

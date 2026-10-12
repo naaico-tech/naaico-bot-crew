@@ -156,6 +156,21 @@ button { font: inherit; }
 .md .md-table th { font-family: var(--hn-font-ui); font-size: 11px; text-transform: uppercase; letter-spacing: .4px; text-align: left; color: var(--hn-ink); background: var(--hn-face); box-shadow: var(--hn-bevel-out); padding: 4px 10px; }
 .md .md-table td { padding: 5px 10px; border-bottom: 1px solid var(--hn-hairline-soft); }
 
+/* media, artifact cards and approvals inside chat */
+.md .md-media { display: block; max-width: min(100%, 520px); max-height: 360px; border: 2px solid var(--hn-hard); box-shadow: 3px 3px 0 var(--hn-hard); background: var(--hn-dark); margin: 6px 0; }
+.md video.md-media { width: 100%; }
+.md a.md-media-link { display: inline-block; }
+.md a.md-artifact { display: grid; gap: 2px; text-decoration: none; margin: 6px 0; padding: 10px 14px; max-width: 420px; background: var(--hn-card); color: var(--hn-ink);
+  border: 2px solid var(--hn-hard); box-shadow: 4px 4px 0 var(--hn-hard); }
+.md a.md-artifact:hover { transform: translate(-1px, -1px); box-shadow: 5px 5px 0 var(--hn-hard); }
+.md .md-artifact-kicker { font-family: var(--hn-font-ui); font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--hn-red); }
+.md .md-artifact-title { font-weight: 600; }
+.md .md-artifact-open { font-family: var(--hn-font-ui); font-size: 12px; color: var(--hn-link); }
+.msg.you .md a:not(.md-artifact) { color: inherit; }
+.msg.you .md code { background: rgba(255,255,255,.14); color: inherit; }
+.apcard.in-chat { align-self: flex-start; max-width: min(640px, 92%); }
+.unread { font-size: 10px; line-height: 15px; padding: 0 5px; flex: 0 0 auto; }
+
 /* ---------- board ---------- */
 .newtask { display: grid; grid-template-columns: 170px minmax(0, 1fr) 150px auto; gap: 8px; align-items: center; }
 @media (max-width: 900px) { .newtask { grid-template-columns: minmax(0, 1fr); } }
@@ -280,6 +295,15 @@ function toast(text) { $('toastText').textContent = text; $('toast').hidden = fa
 async function act(fn, done) { try { const r = await fn(); if (done) toast(done); return r } catch (e) { toast(e.message) } }
 
 // ---------- shell ----------
+/** Unread replies plus approvals waiting on this bot, as a red count beside its name. */
+function badge(slug) {
+  const c = S.state.chats[slug] || {}
+  const unread = (S.view === 'chat' && S.bot === slug) ? 0 : (c.unread || 0)
+  const n = unread + (c.approvals || 0)
+  if (!n) return ''
+  const parts = [unread ? `${unread} unread` : '', c.approvals ? `${c.approvals} waiting for approval` : ''].filter(Boolean).join(', ')
+  return `<span class="hn-badge--red unread" title="${parts}" aria-label="${parts}">${n}</span>`
+}
 function renderShell() {
   const st = S.state
   const mgr = st.config.managerSlug
@@ -290,7 +314,7 @@ function renderShell() {
     <button type="button" class="mate" data-bot="${esc(b.slug)}" aria-current="${b.slug === S.bot && S.view === 'chat'}">
       ${tile(b)}
       <span style="min-width:0;display:grid;gap:2px">
-        <span class="bot-line"><b>${esc(b.name)}</b><span class="model">${esc(b.modelLabel)}</span></span>
+        <span class="bot-line"><b>${esc(b.name)}</b><span class="model">${esc(b.modelLabel)}</span>${badge(b.slug)}</span>
         <span class="bot-state"><i class="dot ${esc(b.state)}"></i>${esc(b.slug === mgr && b.state === 'idle' ? 'Idle · runs the crew' : (STATE_TEXT[b.state] || b.state) + (b.activity ? ': ' + b.activity : ''))}</span>
       </span>
     </button>`).join('')
@@ -323,6 +347,12 @@ $('menu').addEventListener('click', e => { const b = e.target.closest('[data-v]'
 function setView(v) { S.view = v; $('view').className = 'client' + (v === 'chat' ? ' flush' : ''); render(true) }
 
 // ---------- chat ----------
+/** Opening a chat reads it: clears the bot's unread count (approvals stay until answered). */
+function markSeen(slug) {
+  if (LINK.includes('shot') || !S.state?.chats[slug]?.unread || markSeen.busy) return
+  markSeen.busy = true
+  api('POST', `chats/${slug}/seen`).catch(() => {}).finally(() => { markSeen.busy = false })
+}
 async function loadChat() { if (!S.bot) return; S.chat = await api('GET', 'chats/' + S.bot); renderChat() }
 const ACTION = { create_bot: 'New bot', update_bot: 'Change bot', delete_bot: 'Delete bot', add_routine: 'New routine', update_config: 'Settings' }
 function proposalCard(m) {
@@ -362,8 +392,13 @@ function renderChat() {
         ? `<div class="empty"><h2>${mgr ? 'Talk to the crew' : 'Say hello'}</h2><p>${mgr ? 'Ask for anything. The Manager splits work across the crew, and proposes new bots, model changes and routines for you to apply.' : `Ask ${esc(bot.name)} a question or give it work. Bigger jobs go on the board and run in the background.`}</p></div>`
         : thread.messages.map(m => m.proposal ? proposalCard(m)
           : m.role === 'system' ? `<div class="msg system">${esc(m.text)}</div>`
-          : m.role === 'you' ? `<div class="msg you"><span class="meta">You · ${esc(when(m.at))}</span><div class="text">${esc(m.text)}</div></div>`
+          : m.role === 'you' ? `<div class="msg you"><span class="meta">You · ${esc(when(m.at))}</span><div class="text md">${md(m.text)}</div></div>`
           : `<div class="msg bot"><span class="meta">${esc(bot.name)} · ${esc(when(m.at))}${m.taskId ? ` · <a href="#" data-open-task="${esc(m.taskId)}">${esc(m.taskId)}</a>` : ''}</span><div class="text md">${md(m.text)}</div></div>`).join('')}
+      ${S.state.approvals.filter(a => a.bot === bot.slug).map(a => `<article class="apcard in-chat hn-card--hard">
+        <div class="row"><span class="hn-eyebrow">Needs approval</span><span class="meta">${esc(when(a.createdAt))}${a.taskId.startsWith('chat:') ? '' : ` · <a href="#" data-open-task="${esc(a.taskId)}">${esc(a.taskId)}</a>`}</span></div>
+        <pre class="hn-code-block">${esc(a.summary)}</pre>
+        <div class="row"><button class="hn-btn hn-btn--primary sm" type="button" data-d="allow" data-id="${esc(a.id)}">Allow once</button><button class="hn-btn sm" type="button" data-d="always" data-id="${esc(a.id)}">Always allow</button><button class="hn-btn sm danger" type="button" data-d="deny" data-id="${esc(a.id)}">Deny</button></div>
+      </article>`).join('')}
       ${busy ? `<div class="thinking"><span class="hn-progress" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span><span class="meta">${!S.state.runner.alive ? 'Waiting for the runner to start' : `${esc(bot.name)} is thinking`}</span></div>` : ''}
     </div>
     ${thread && !thread.messages.length ? `<div class="ideas">${ideas.map(i => `<button class="hn-btn sm" type="button" data-idea="${esc(i)}">${esc(i)}</button>`).join('')}</div>` : ''}
@@ -385,6 +420,8 @@ function renderChat() {
   $('draft').onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('composer').requestSubmit() } }
   v.querySelectorAll('[data-idea]').forEach(b => (b.onclick = () => { $('draft').value = b.dataset.idea; $('draft').focus() }))
   v.querySelectorAll('[data-open-task]').forEach(a => (a.onclick = e => { e.preventDefault(); openTask(a.dataset.openTask) }))
+  v.querySelectorAll('[data-d]').forEach(b => (b.onclick = () => act(() => api('POST', 'approvals/' + b.dataset.id, { decision: b.dataset.d }), b.dataset.d === 'deny' ? 'Denied' : 'Allowed')))
+  markSeen(bot.slug)
   v.querySelectorAll('[data-apply],[data-discard]').forEach(b => (b.onclick = () => act(async () => {
     S.chat = await api('POST', `chats/${bot.slug}/proposals/${b.dataset.apply || b.dataset.discard}`, { apply: !!b.dataset.apply }); renderChat()
   })))
@@ -562,7 +599,8 @@ function render(full) {
   if (!S.state) return
   renderShell()
   if (S.view === 'chat') {
-    const stamp = S.bot && JSON.stringify(S.state.chats[S.bot] || {})
+    const c = S.bot ? S.state.chats[S.bot] || {} : {}
+    const stamp = S.bot && JSON.stringify({ status: c.status, count: c.count, lastAt: c.lastAt, approvals: S.state.approvals.filter(a => a.bot === S.bot).map(a => a.id) })
     if (full || !S.chat || stamp !== S.chatStamp) { S.chatStamp = stamp; if (!S.chat) renderChat(); loadChat() }
     return
   }
