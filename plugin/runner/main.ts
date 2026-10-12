@@ -6,7 +6,7 @@ import { readFileSync, unlinkSync } from 'node:fs'
 import { chmod, link, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 
-import { answerChat, botSystemPrompt, chatSystemPrompt, checkLimits, DEFAULT_EFFORT, finishOrReturn, childFinished, currentPercent, event, RUNAWAY_USD, windowsFromStreamEvent, newId as makeId, readChat, saveChat, unanswered, isDue, makeTask, mcpScope, newId, parseSchedule, taskPrompt, MODEL_IDS, MODEL_LABELS, TERMINAL } from './core.ts'
+import { answerChat, botSystemPrompt, cacheShare, replyCost, chatSystemPrompt, checkLimits, DEFAULT_EFFORT, finishOrReturn, childFinished, currentPercent, event, RUNAWAY_USD, windowsFromStreamEvent, newId as makeId, readChat, saveChat, unanswered, isDue, makeTask, mcpScope, newId, parseSchedule, taskPrompt, MODEL_IDS, MODEL_LABELS, TERMINAL } from './core.ts'
 import type { Bot, ChatThread, Config, Connector, LimitCheck, Store, Task } from './core.ts'
 import { startWeb, webInfo } from './web.ts'
 import { discoverConnectors, expandHome, notify, nowIso, openStore, runClaude, today, ROOT, RUNNER_DIR } from './node.ts'
@@ -277,7 +277,8 @@ export class Runner {
       }
     }
     t.updatedAt = end
-    t.history.push(event('runner', 'note', `Run ${t.runs} ended: $${cost.toFixed(3)}, ${r.json?.num_turns ?? 0} turns, model ${models}`, end))
+    const cache = cacheShare(r.json?.usage)
+    t.history.push(event('runner', 'note', `Run ${t.runs} ended: $${cost.toFixed(3)}, ${r.json?.num_turns ?? 0} turns, model ${models}${cache ? `, ${cache}` : ''}`, end))
     await s.saveTask(t)
     await s.fs.remove(mcpPath)
     await this.after(t)
@@ -386,7 +387,9 @@ export class Runner {
     }
     await s.fs.remove(mcpPath)
 
-    const cost = r.json?.total_cost_usd ?? 0
+    const total = r.json?.total_cost_usd ?? 0
+    const resumed = !!thread.sessionId && r.json?.session_id === thread.sessionId
+    const cost = replyCost(total, resumed, thread.sessionCostUsd)
     if (cost) await s.addUsage(today(), bot.slug, cost)
     const fresh = await readChat(s, bot.slug)
     if (watch.stopped && !watch.stopped.perRun) {
@@ -406,7 +409,10 @@ export class Runner {
     const askedIds = new Set(asked.map(m => m.id))
     for (const m of fresh.messages) if (askedIds.has(m.id)) m.answered = true
     fresh.messages.push({ id: makeId('m', Date.now()), role: 'bot', text: reply, at: nowIso() })
-    if (r.json?.session_id && !r.json.is_error) fresh.sessionId = r.json.session_id
+    if (r.json?.session_id && !r.json.is_error) {
+      fresh.sessionId = r.json.session_id
+      fresh.sessionCostUsd = total
+    }
     fresh.status = unanswered(fresh).length ? 'queued' : 'idle'
     await saveChat(s, fresh)
   }

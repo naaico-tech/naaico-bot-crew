@@ -22,6 +22,9 @@ import {
   parseMention,
   parseSchedule,
   ruleFor,
+  cacheShare,
+  chatSystemPrompt,
+  replyCost,
 } from '../plugin/runner/core.ts'
 import type { Config } from '../plugin/runner/core.ts'
 import { STARTER_CREW } from '../plugin/runner/setup.ts'
@@ -269,6 +272,25 @@ describe('returning finished work', () => {
     const chat = await readChat(s, 'inbox')
     assert.equal(chat.messages.at(-1)?.taskId, 't-chain')
     assert.match(chat.messages.at(-1)?.text ?? '', /\*\*Done:\*\* Sort out the Acme call\n\n\*\*Booked\*\* Tue 10:00/)
+  })
+})
+
+describe('prompt caching', () => {
+  it('reports the share of input served from the cache', () => {
+    assert.equal(cacheShare({ input_tokens: 10, cache_creation_input_tokens: 938, cache_read_input_tokens: 7178 }), '88% of input from cache')
+    assert.equal(cacheShare(undefined), '')
+  })
+
+  it('counts only a resumed chat reply, not the session total', () => {
+    assert.equal(replyCost(0.0187, true, 0.0171).toFixed(4), '0.0016')
+    assert.equal(replyCost(0.0171, false, 0.5), 0.0171)
+  })
+
+  it('keeps the chat prompt identical however connectors are listed', () => {
+    const c = (label: string) => ({ prefix: 'mcp__' + label, name: label, label, status: 'connected' })
+    const a = chatSystemPrompt(inbox, STARTER_CREW, cfg, '', [c('Gmail'), c('Slack'), c('Gmail')])
+    const b = chatSystemPrompt(inbox, STARTER_CREW, cfg, '', [c('Slack'), c('Gmail')])
+    assert.equal(a, b)
   })
 })
 

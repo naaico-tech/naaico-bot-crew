@@ -50,6 +50,29 @@ The app follows your system's light or dark setting (Dawn and Neon), and the NAA
 | Browser app | `plugin/runner/web/` · `http://127.0.0.1:4545` | Chat, bot builder, board, approvals, routines, settings |
 | Claude Code plugin | `plugin/` | Sets up and starts the runner, `/bot` commands, `@Bot` mentions, the Bots pane, and Claude Code's own usage readings |
 
+## How it uses Claude Code mods
+
+The plugin is a Claude Code mod (`plugin/hooks/register.tsx`): the crew's installer and control panel inside Claude Code.
+
+| Mod feature | What Office Hours uses it for |
+|---|---|
+| `session.start` | Sets up and starts the runner when a session opens, registers `/bot`, opens the Bots pane |
+| `command.run` | The `/bot` commands |
+| `prompt.submit` | Turns `@Inbox triage today's email` into a task instead of a message to Claude |
+| `ui.render` (Pane) | The Bots pane: runner state, approvals with Allow and Deny, bots, recent tasks |
+| `session.measure`, `$.session.usage()` | Reads your plan's 5-hour and weekly usage from Claude Code for the usage limits |
+| `$.model.fork` | `/bot teach`: turns the current conversation into a routine a bot can repeat |
+| `$.process`, `$.fs`, `$.clock`, `$.ui` | Starting and stopping the runner, reading the crew store, refreshing every 3 seconds, toasts and the status line |
+
+The work itself isn't done by the mod:
+
+- **The runner** is a plain Node process that ships inside the plugin and runs on its own, so it keeps going after Claude Code closes.
+- **Each bot's work** is a headless `claude -p` run with the bot's model, effort and connectors.
+- **The crew tools and approvals** are a small MCP server loaded into each run.
+- **The browser app** is served by the runner.
+
+The crew works without the mod: from a clone, run the runner and use the browser app. You lose `/bot`, `@mentions`, the pane, the plan usage readings and the automatic start.
+
 ## Get started
 
 You need **Claude Code**, signed in (`claude auth login`), and **Node 24+** (`node --version`; get it from [nodejs.org](https://nodejs.org) or `brew install node`). The runner has no npm dependencies.
@@ -144,6 +167,7 @@ Work in a new branch, run the tests before and after your change, and open a PR 
   - One task may use only a set share of the 5-hour window.
   - A small runaway guard stops any single run that grows unexpectedly.
   - Bots run at medium effort unless you choose otherwise.
+- **Prompt caching.** Each bot's system prompt and tool list are the same from run to run (no timestamps, connectors in a fixed order), so later runs of a bot read them from Claude's prompt cache. Chats resume the same session, so each reply reuses the conversation so far. In a test, the second run of a bot took 88% of its input from the cache and cost about a sixth of the first. Every task's history shows its cache share ("Run 1 ended: … 88% of input from cache"). The cache expires after a few minutes of no use, so a bot's first run after a quiet spell pays the full price again.
 - **Approvals.** Reads run without asking. Sends, posts, deletes, invites and payments always ask, and so does any other change to a connected account. Everything else (editing files, running commands) goes to a quick review that asks you when unsure. "Always allow" saves a rule for one bot only.
 - **Private by default.** The browser app listens on `127.0.0.1` only and needs the token link once. Writes need an `X-Bots` header, the Host header is checked, and the page loads no remote scripts or fonts. The crew store is readable by your user only.
 - **Keep it personal.** Don't share the app or run it as a service for others on a personal plan. For heavier or business use, run the runner with an Anthropic API key.

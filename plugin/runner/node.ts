@@ -6,7 +6,7 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
 import { connectorLabel, Store } from './core.ts'
-import type { Connector, Fs } from './core.ts'
+import type { Connector, Fs, TokenUsage } from './core.ts'
 
 export const ROOT = process.env.BOTS_ROOT ?? join(homedir(), '.claude', 'bots')
 export const CLAUDE = process.env.BOTS_CLAUDE ?? 'claude'
@@ -66,6 +66,7 @@ export type ClaudeResult = {
     subtype?: string
     num_turns?: number
     modelUsage?: Record<string, unknown>
+    usage?: TokenUsage
   }
   stdout: string
   stderr: string

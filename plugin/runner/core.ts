@@ -782,6 +782,21 @@ export function summarize(tool: string, input: Record<string, unknown>): string 
 
 // ---------- prompts ----------
 
+/** Input token figures from a claude -p result. */
+export type TokenUsage = { input_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number }
+
+/** "91% of input from cache", or '' when the run reported no figures. */
+export function cacheShare(u: TokenUsage | undefined): string {
+  const read = u?.cache_read_input_tokens ?? 0
+  const all = read + (u?.cache_creation_input_tokens ?? 0) + (u?.input_tokens ?? 0)
+  return all ? `${Math.round((read / all) * 100)}% of input from cache` : ''
+}
+
+/** A reply's own cost: a resumed session reports its running total, so subtract what came before. */
+export function replyCost(total: number, resumed: boolean, before: number | undefined): number {
+  return resumed ? Math.max(0, total - (before ?? 0)) : total
+}
+
 export function botSystemPrompt(bot: Bot, bots: Bot[], cfg: Config, memory: string): string {
   const roster = bots.map(b => `- ${b.slug} (${b.name}, ${MODEL_LABELS[b.model]}): ${b.job}`).join('\n')
   const rules =
@@ -864,6 +879,8 @@ export type ChatThread = {
   bot: string
   status: 'idle' | 'queued' | 'thinking'
   sessionId?: string
+  /** The resumed session's running cost; each reply's own cost is the difference. */
+  sessionCostUsd?: number
   messages: ChatMessage[]
 }
 
@@ -890,7 +907,8 @@ export function unanswered(thread: ChatThread): ChatMessage[] {
 }
 
 export function chatSystemPrompt(bot: Bot, bots: Bot[], cfg: Config, memory: string, connectors: Connector[]): string {
-  const available = connectors.filter(isAvailable).map(c => c.label)
+  // Sorted and deduplicated so the prompt stays byte-identical between replies.
+  const available = [...new Set(connectors.filter(isAvailable).map(c => c.label))].sort()
   return [
     botSystemPrompt(bot, bots, cfg, memory),
     'You are now chatting with the user directly, not working a task. Answer conversationally and briefly.',
