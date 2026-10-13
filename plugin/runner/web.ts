@@ -27,6 +27,8 @@ import {
   parseModel,
   parseSchedule,
   postToChat,
+  decideProposal,
+  markSeen,
   readChat,
   saveChat,
   slugify,
@@ -235,10 +237,7 @@ async function route(s: Store, req: IncomingMessage, url: URL): Promise<unknown>
       return readChat(s, id)
     }
     if (method === 'POST' && sub === 'seen') {
-      // Read state lives apart from the thread, so marking a chat read never races the runner's replies.
-      const seen = await s.readJson<Record<string, string>>(s.path('seen.json'), {})
-      seen[id] = at
-      await s.writeJson(s.path('seen.json'), seen)
+      await markSeen(s, id, at)
       return { seen: at }
     }
     if (method === 'DELETE' && !sub) {
@@ -248,23 +247,8 @@ async function route(s: Store, req: IncomingMessage, url: URL): Promise<unknown>
     }
     if (method === 'POST' && sub === 'proposals' && subId) {
       const { apply } = await body(req)
-      const thread = await readChat(s, id)
-      const msg = thread.messages.find(m => m.id === subId)
-      if (!msg?.proposal || msg.proposal.state !== 'pending') throw new HttpError(404, 'That proposal is no longer waiting.')
-      if (apply) {
-        try {
-          msg.proposal.outcome = await applyProposal(s, msg.proposal, at)
-          msg.proposal.state = 'applied'
-        } catch (err) {
-          msg.proposal.outcome = (err as Error).message
-          msg.proposal.state = 'failed'
-        }
-      } else {
-        msg.proposal.state = 'discarded'
-        msg.proposal.outcome = 'Discarded.'
-      }
-      thread.messages.push({ id: newId('m', Date.now()), role: 'system', text: `${msg.proposal.state === 'applied' ? 'Applied' : msg.proposal.state === 'failed' ? 'Could not apply' : 'Discarded'}: ${msg.proposal.outcome}`, at })
-      await saveChat(s, thread)
+      const thread = await decideProposal(s, id, subId, !!apply, at)
+      if (!thread) throw new HttpError(404, 'That proposal is no longer waiting.')
       return thread
     }
   }

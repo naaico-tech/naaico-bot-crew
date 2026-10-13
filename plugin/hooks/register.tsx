@@ -19,16 +19,26 @@ import {
   titleFrom,
   MODEL_LABELS,
   nextRun,
+  decideProposal,
+  markSeen,
+  postToChat,
+  readChat,
+  unreadCounts,
   Store,
   TERMINAL,
   windowsFromSession,
 } from '../runner/core.ts'
 import type { Approval, Bot, Fs, ModelName, Routine, Task } from '../runner/core.ts'
-import type { Snapshot } from '../types'
+import type { ChatView, Snapshot } from '../types'
 
 const PANE = 'bots'
-const EMPTY: Snapshot = { bots: [], tasks: [], approvals: [], runner: 'stopped', paused: false, usage: '', updatedAt: '' }
+const EMPTY: Snapshot = { bots: [], tasks: [], approvals: [], runner: 'stopped', paused: false, usage: '', updatedAt: '', unread: {}, webLink: '' }
 const snapshot = atom({ plugin: 'office-hours', key: 'snapshot' } as const, EMPTY)
+const chatBot = atom({ plugin: 'office-hours', key: 'chatBot' } as const, '')
+const tab = atom({ plugin: 'office-hours', key: 'tab' } as const, 'chat' as 'chat' | 'crew')
+const sent = atom({ plugin: 'office-hours', key: 'sent' } as const, 0)
+/** Messages the pane shows; the browser app has the whole thread. */
+const PANE_LINES = 8
 
 const HELP = `Office Hours commands:
   @Bot <request>                 give a bot a task (add [opus|sonnet|haiku|fable] after the name to change its model for this task)
@@ -49,6 +59,7 @@ const HELP = `Office Hours commands:
   /bot pause | resume            stop or restart the runner picking up work
   /bot start | stop              start or stop the background runner (it starts with Claude Code until you stop it)
   /bot runner                    is the background runner alive?
+  /bot chat <Bot> <message>      chat with a bot (or use the Bots pane)
   /bot pane                      open the Bots pane
   /bot web                       link to the browser app (chat, bot builder, board)
 Schedules: "every 30m", "daily 08:30", "weekdays 09:00", "mon,wed 10:15".`
@@ -205,8 +216,28 @@ async function recordWindows($: any, rateLimits: { kind: string; percentUsed: nu
   if (w) await (await storeFor($)).saveUsageWindows(w)
 }
 
-async function snap(s: Store, now: Date): Promise<Snapshot> {
+/** The open chat as the pane draws it: the last few messages, long ones cut. */
+async function chatView(s: Store, bot: Bot): Promise<ChatView> {
+  const thread = await readChat(s, bot.slug)
+  const shown = thread.messages.slice(-PANE_LINES)
+  return {
+    bot: bot.slug,
+    name: bot.name,
+    status: thread.status,
+    more: thread.messages.length - shown.length,
+    lines: shown.map(m => ({
+      id: m.id,
+      role: m.role,
+      text: m.text.length > 1500 ? `${m.text.slice(0, 1500)}…\n\n_(cut short here; the whole reply is in the browser app)_` : m.text,
+      proposal: m.proposal ? { summary: m.proposal.summary, state: m.proposal.state } : undefined,
+    })),
+  }
+}
+
+async function snap(s: Store, now: Date, chatSlug = ''): Promise<Snapshot> {
   const [bots, tasks, approvals, runner, cfg, windows] = await Promise.all([s.bots(), s.tasks(), s.approvals(), s.runner(), s.config(), s.usageWindows()])
+  const chatting = bots.find(b => b.slug === chatSlug) ?? bots.find(b => b.slug === cfg.managerSlug) ?? bots[0]
+  const [chat, unread, link] = await Promise.all([chatting ? chatView(s, chatting) : undefined, unreadCounts(s, bots.map(b => b.slug)), webLink(s)])
   const alive = !!runner && now.getTime() - new Date(runner.heartbeat).getTime() < 20_000
   const open = tasks.filter(t => !TERMINAL.includes(t.status))
   return {
@@ -230,6 +261,9 @@ async function snap(s: Store, now: Date): Promise<Snapshot> {
     paused: cfg.paused,
     usage: usageLine(windows, cfg.limits, now),
     updatedAt: now.toISOString(),
+    chat,
+    unread,
+    webLink: link.replace(/^Browser app: /, ''),
   }
 }
 
@@ -259,6 +293,12 @@ export async function runCommand($: any, args: string, now: Date = new Date()): 
     case 'stop': {
       await s.saveConfig({ ...cfg, autoStart: false })
       return `${await stopRunner($, s)}\nIt won't start with Claude Code until you run /bot start.`
+    }
+    case 'chat': {
+      const { bot, rest: text } = botAndRest(bots, rest)
+      if (!bot || !text) return 'Usage: /bot chat <Bot> <message>   (or chat in the Bots pane)'
+      await postToChat(s, bot.slug, text, now.toISOString())
+      return `Sent to ${bot.name}. The reply shows in the Bots pane and the browser app.`
     }
     case 'pane':
       await $.ui.open({ id: PANE, title: 'Bots' })
@@ -414,11 +454,11 @@ async function routineCommand(s: Store, bots: Bot[], rest: string, now: Date): P
 }
 
 const seen = new Set<string>()
-let cancelTimer: (() => void) | undefined
+let timer: { cancel: () => void } | undefined
 
 async function refresh($: any): Promise<void> {
   const s = await storeFor($)
-  const next = await snap(s, new Date(await $.clock.now()))
+  const next = await snap(s, new Date(await $.clock.now()), await read($, chatBot))
   await update($, snapshot, () => next)
   for (const a of next.approvals) {
     if (seen.has(a.id)) continue
@@ -451,6 +491,29 @@ async function startAndRefresh($: any): Promise<void> {
   await refresh($)
 }
 
+async function sendChat($: any, bot: string, text: string): Promise<void> {
+  if (!text.trim()) return
+  const s = await storeFor($)
+  const at = new Date(await $.clock.now()).toISOString()
+  await postToChat(s, bot, text, at)
+  await markSeen(s, bot, at)
+  await update($, sent, n => n + 1)
+  await refresh($)
+}
+
+async function openChat($: any, bot: string): Promise<void> {
+  await update($, chatBot, () => bot)
+  await markSeen(await storeFor($), bot, new Date(await $.clock.now()).toISOString())
+  await refresh($)
+}
+
+async function proposalAndRefresh($: any, bot: string, msgId: string, apply: boolean): Promise<void> {
+  const s = await storeFor($)
+  const thread = await decideProposal(s, bot, msgId, apply, new Date(await $.clock.now()).toISOString())
+  $.ui.toast(thread ? (apply ? 'Applied.' : 'Discarded.') : 'That proposal is no longer waiting.')
+  await refresh($)
+}
+
 async function decideAndRefresh($: any, id: string, allowed: boolean, always: boolean): Promise<void> {
   await decide(await storeFor($), id, allowed, always)
   await refresh($)
@@ -460,8 +523,8 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'bot', description: 'Office Hours: assign tasks to your bots, manage bots and models, approve actions' })
     void $.ui.open({ id: PANE, title: 'Bots' })
-    cancelTimer?.()
-    cancelTimer = $.clock.every(3000, () => void refresh($).catch(() => {}))
+    timer?.cancel()
+    timer = $.clock.every(3000, () => void refresh($).catch(() => {}))
     void autoStart($).catch(() => {})
     void $.session.usage().then((u: { rateLimits?: { kind: string; percentUsed: number; resetsAt?: string }[] }) => recordWindows($, u.rateLimits)).catch(() => {})
     void refresh($).catch(() => {})
@@ -490,44 +553,96 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Button } = $.ui.resolve(e)
-    const st = await read($, snapshot)
+    const els = $.ui.resolve(e)
+    const { Box, Text, Button, Markdown } = els
+    // Mobile draws no text field or picker: it chats with /bot chat instead.
+    const Input = 'Input' in els ? els.Input : undefined
+    const Select = 'Select' in els ? els.Select : undefined
+    const [st, view, n] = await Promise.all([read($, snapshot), read($, tab), read($, sent)])
+    const chat = st.chat
+    const approvalRows = (list: Snapshot['approvals']) =>
+      list.map(a => (
+        <Box key={`ap-${a.id}`} flexDirection="column">
+          <Text>
+            {a.bot} needs approval: {a.summary}
+          </Text>
+          <Box>
+            <Button key={`ok-${a.id}`} label="Allow once" onPress={() => decideAndRefresh($, a.id, true, false)} />
+            <Button key={`al-${a.id}`} label="Always allow" onPress={() => decideAndRefresh($, a.id, true, true)} />
+            <Button key={`no-${a.id}`} label="Deny" onPress={() => decideAndRefresh($, a.id, false, false)} />
+          </Box>
+        </Box>
+      ))
+    const unreadTotal = Object.values(st.unread).reduce((a, b) => a + b, 0)
     return (
       <Box flexDirection="column">
-        <Text dimColor>Chat and build bots in the browser: /bot web</Text>
-        <Text dimColor>{st.usage}</Text>
-        <Text bold>
+        <Box>
+          <Button key="tab-chat" label={`${view === 'chat' ? '[Chat]' : 'Chat'}${unreadTotal ? ` (${unreadTotal} new)` : ''}`} onPress={() => update($, tab, () => 'chat' as const)} />
+          <Button key="tab-crew" label={`${view === 'crew' ? '[Crew]' : 'Crew'}${st.approvals.length ? ` (${st.approvals.length} to approve)` : ''}`} onPress={() => update($, tab, () => 'crew' as const)} />
+        </Box>
+        <Text dimColor>
           Runner: {st.runner}
-          {st.paused ? ' (paused)' : ''}
+          {st.paused ? ' (paused)' : ''} · {st.usage}
         </Text>
         {st.runner === 'stopped' && <Button key="start" label="Start runner" onPress={() => startAndRefresh($)} />}
-        {st.approvals.length > 0 && <Text bold>Needs your approval</Text>}
-        {st.approvals.map(a => (
-          <Box key={`ap-${a.id}`} flexDirection="column">
-            <Text>
-              {a.bot}: {a.summary}
-            </Text>
-            <Box>
-              <Button key={`ok-${a.id}`} label="Allow once" onPress={() => decideAndRefresh($, a.id, true, false)} />
-              <Button key={`al-${a.id}`} label="Always allow" onPress={() => decideAndRefresh($, a.id, true, true)} />
-              <Button key={`no-${a.id}`} label="Deny" onPress={() => decideAndRefresh($, a.id, false, false)} />
-            </Box>
+        {view === 'chat' ? (
+          <Box flexDirection="column">
+            {!chat && <Text dimColor>No bots yet. /bot start creates the starter crew.</Text>}
+            {chat && Select && (
+              <Select
+                key="chat-bot"
+                label="Chat with"
+                value={chat.bot}
+                options={st.bots.map(b => ({ value: b.slug, label: `${b.name}${st.unread[b.slug] && b.slug !== chat.bot ? ` (${st.unread[b.slug]} new)` : ''}` }))}
+                onSelect={v => openChat($, v)}
+              />
+            )}
+            {chat && !Select && <Text bold>{chat.name}</Text>}
+            {chat && chat.more > 0 && <Text dimColor>{chat.more} earlier messages are in the browser app.</Text>}
+            {chat && chat.lines.length === 0 && <Text dimColor>Say hello to {chat.name}. Replies come from the runner, so they keep coming after you close this session.</Text>}
+            {chat?.lines.map(m => (
+              <Box key={`m-${m.id}`} flexDirection="column">
+                <Text bold dimColor={m.role === 'system'}>
+                  {m.role === 'you' ? 'You' : m.role === 'bot' ? chat.name : 'Note'}
+                </Text>
+                <Markdown key={`md-${m.id}`} text={m.text} dimColor={m.role === 'system'} />
+                {m.proposal?.state === 'pending' && (
+                  <Box>
+                    <Button key={`apply-${m.id}`} label="Apply" onPress={() => proposalAndRefresh($, chat.bot, m.id, true)} />
+                    <Button key={`discard-${m.id}`} label="Discard" onPress={() => proposalAndRefresh($, chat.bot, m.id, false)} />
+                  </Box>
+                )}
+              </Box>
+            ))}
+            {chat && approvalRows(st.approvals.filter(a => a.bot === chat.bot))}
+            {chat && chat.status !== 'idle' && <Text dimColor>{chat.name} is {chat.status === 'thinking' ? 'replying…' : 'about to reply…'}</Text>}
+            {chat && Input && (
+              <Input key={`msg-${chat.bot}-${n}`} placeholder={`Message ${chat.name}`} submitLabel="send" autoFocus onSubmit={v => sendChat($, chat.bot, v)} />
+            )}
+            {chat && !Input && <Text dimColor>Chat with /bot chat {chat.name} your message</Text>}
+            {st.webLink && <Text dimColor>Full chat, board and settings: /bot web</Text>}
           </Box>
-        ))}
-        <Text bold>Bots</Text>
-        {st.bots.length === 0 && <Text dimColor>No bots yet. /bot new Name | model | job</Text>}
-        {st.bots.map(b => (
-          <Text key={`b-${b.slug}`}>
-            {b.name} · {b.model} · {b.activity}
-          </Text>
-        ))}
-        <Text bold>Recent tasks</Text>
-        {st.tasks.length === 0 && <Text dimColor>Give a bot work: @Inbox triage today's email</Text>}
-        {st.tasks.slice(0, 8).map(t => (
-          <Text key={`t-${t.id}`} dimColor={t.status === 'done' || t.status === 'cancelled'} wrap="truncate-end">
-            {t.status} · {t.owner} · {t.title}
-          </Text>
-        ))}
+        ) : (
+          <Box flexDirection="column">
+            {st.approvals.length > 0 && <Text bold>Needs your approval</Text>}
+            {approvalRows(st.approvals)}
+            <Text bold>Bots</Text>
+            {st.bots.length === 0 && <Text dimColor>No bots yet. /bot new Name | model | job</Text>}
+            {st.bots.map(b => (
+              <Text key={`b-${b.slug}`}>
+                {b.name} · {b.model} · {b.activity}
+                {st.unread[b.slug] ? ` · ${st.unread[b.slug]} new` : ''}
+              </Text>
+            ))}
+            <Text bold>Recent tasks</Text>
+            {st.tasks.length === 0 && <Text dimColor>Give a bot work: @Inbox triage today's email</Text>}
+            {st.tasks.slice(0, 8).map(t => (
+              <Text key={`t-${t.id}`} dimColor={t.status === 'done' || t.status === 'cancelled'} wrap="truncate-end">
+                {t.status} · {t.owner} · {t.title}
+              </Text>
+            ))}
+          </Box>
+        )}
       </Box>
     )
   })

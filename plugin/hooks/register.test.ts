@@ -165,4 +165,59 @@ describe('office-hours', () => {
     expect(r.text).toContain('not running')
     expect(JSON.parse(files.get(`${ROOT}/config.json`) ?? '{}').autoStart).toBe(false)
   })
+
+  // ---------- chat in the Bots pane ----------
+
+  const PANE_PROPS = { title: 'Bots', isFocused: true, bodyColumns: 80, placement: 'dock', scroll: {} as any, view: {} as any } as const
+  const mountPane = async ($: any, surface: 'terminal' | 'desktop') => {
+    await run($, 'tasks')
+    await clock.advance(0)
+    return $.ui.mount({ plugin: 'office-hours', surface, component: 'Pane', requestId: 'bots', props: PANE_PROPS })
+  }
+  const chatOf = (files: Map<string, string>, bot: string) => JSON.parse(files.get(`${ROOT}/chats/${bot}.json`) ?? '{"messages":[]}')
+
+  test('the pane chats with the Manager and clears the field after sending', async ($, on) => {
+    const files = fakeFs(on)
+    for (const surface of ['terminal', 'desktop'] as const) {
+      const ui = await mountPane($, surface)
+      const field = (await ui.find({ type: 'Input' }))?.key ?? ''
+      expect(field.startsWith('msg-manager-')).toBe(true)
+      await ui.input({ key: field, text: `Plan the offsite (${surface})` })
+      const thread = chatOf(files, 'manager')
+      expect(thread.messages.at(-1)).toMatchObject({ role: 'you', text: `Plan the offsite (${surface})` })
+      expect(thread.status).toBe('queued')
+      // A new key is a fresh, empty field.
+      expect((await ui.find({ type: 'Input' }))?.key).not.toBe(field)
+      await ui.unmount()
+    }
+  })
+
+  test('picking another bot opens its chat and marks it read', async ($, on) => {
+    const files = fakeFs(on)
+    files.set(`${ROOT}/chats/inbox.json`, JSON.stringify({ bot: 'inbox', status: 'idle', messages: [{ id: 'm-1', role: 'bot', text: '**3 emails** need a reply', at: '2026-10-12T09:00:00.000Z' }] }))
+    const ui = await mountPane($, 'terminal')
+    expect((await ui.find({ key: 'tab-chat' }))?.text).toContain('(1 new)')
+    await ui.select({ key: 'chat-bot', value: 'inbox' })
+    expect(await ui.find({ key: 'msg-inbox-0' })).toBeDefined()
+    expect(await ui.find({ key: 'md-m-1' })).toBeDefined()
+    expect(JSON.parse(files.get(`${ROOT}/seen.json`) ?? '{}').inbox).toBeDefined()
+  })
+
+  test('a proposal in the chat can be applied from the pane', async ($, on) => {
+    const files = fakeFs(on)
+    const proposal = { action: 'create_bot', summary: 'New bot: Recruiter on Sonnet', bot: { name: 'Recruiter', model: 'sonnet', job: 'Screen candidates' }, state: 'pending' }
+    files.set(`${ROOT}/chats/manager.json`, JSON.stringify({ bot: 'manager', status: 'idle', messages: [{ id: 'm-p', role: 'bot', text: proposal.summary, at: '2026-10-12T09:00:00.000Z', proposal }] }))
+    const ui = await mountPane($, 'desktop')
+    await ui.press({ key: 'apply-m-p' })
+    expect(files.get(`${ROOT}/bots/recruiter.md`)).toContain('model: sonnet')
+    expect(chatOf(files, 'manager').messages[0].proposal.state).toBe('applied')
+    expect(await ui.find({ key: 'apply-m-p' })).toBeUndefined()
+  })
+
+  test('/bot chat sends a message without the pane', async ($, on) => {
+    const files = fakeFs(on)
+    const r = await run($, 'chat Inbox what needs a reply today?')
+    expect(r.text).toContain('Sent to Inbox')
+    expect(chatOf(files, 'inbox').messages[0].text).toBe('what needs a reply today?')
+  })
 })

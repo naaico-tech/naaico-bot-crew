@@ -23,6 +23,23 @@ export type ApprovalRow = {
   summary: string
 }
 
+export type ChatLine = {
+  id: string
+  role: 'you' | 'bot' | 'system'
+  text: string
+  /** A crew change the bot proposed, waiting for Apply or Discard while `pending`. */
+  proposal?: { summary: string; state: string }
+}
+
+export type ChatView = {
+  bot: string
+  name: string
+  status: 'idle' | 'queued' | 'thinking'
+  lines: ChatLine[]
+  /** Older messages not shown in the pane. */
+  more: number
+}
+
 export type Snapshot = {
   bots: BotRow[]
   tasks: TaskRow[]
@@ -31,10 +48,21 @@ export type Snapshot = {
   paused: boolean
   usage: string
   updatedAt: string
+  /** The chat open in the pane, and unread replies per bot. */
+  chat?: ChatView
+  unread: Record<string, number>
+  webLink: string
 }
 
 declare module 'claude-code' {
   interface PluginState {
-    'office-hours': { snapshot: Snapshot }
+    'office-hours': {
+      snapshot: Snapshot
+      /** The bot whose chat the pane shows. */
+      chatBot: string
+      tab: 'chat' | 'crew'
+      /** Messages sent from the pane; part of the input's key, so the field clears after each send. */
+      sent: number
+    }
   }
 }

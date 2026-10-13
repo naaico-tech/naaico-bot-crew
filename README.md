@@ -16,7 +16,7 @@
 - **You approve what matters.** Reads run on their own. Sending, posting, inviting, deleting, and any other change to a connected account waits for **Allow once**, **Always allow** or **Deny**.
 - **It respects your plan.** The crew reads your plan's 5-hour and weekly usage from Claude Code itself. It stops starting work at the limits you set (50% of each by default), stops a run that crosses one, and carries on after the reset, so the rest stays yours.
 - **Routines.** "Weekdays at 08:30, send me a morning brief", at most every 15 minutes.
-- **Three ways in:** the browser app, `@Bot` mentions and `/bot` commands inside Claude Code, and a Bots pane in Claude Code.
+- **Three ways in:** the browser app; the Bots pane in Claude Code, where you can chat with any bot, apply its proposals and answer approvals; and `@Bot` mentions and `/bot` commands (`/bot chat Inbox …`).
 
 | Board | Approvals |
 |---|---|
@@ -59,7 +59,7 @@ The plugin is a Claude Code mod (`plugin/hooks/register.tsx`): the crew's instal
 | `session.start` | Sets up and starts the runner when a session opens, registers `/bot`, opens the Bots pane |
 | `command.run` | The `/bot` commands |
 | `prompt.submit` | Turns `@Inbox triage today's email` into a task instead of a message to Claude |
-| `ui.render` (Pane) | The Bots pane: runner state, approvals with Allow and Deny, bots, recent tasks |
+| `ui.render` (Pane) | The Bots pane. **Chat** tab: pick a bot, read its latest replies in Markdown, send a message, Apply or Discard its proposals, answer its approvals, with unread counts. **Crew** tab: approvals, bots and what they're doing, recent tasks |
 | `session.measure`, `$.session.usage()` | Reads your plan's 5-hour and weekly usage from Claude Code for the usage limits |
 | `$.model.fork` | `/bot teach`: turns the current conversation into a routine a bot can repeat |
 | `$.process`, `$.fs`, `$.clock`, `$.ui` | Starting and stopping the runner, reading the crew store, refreshing every 3 seconds, toasts and the status line |

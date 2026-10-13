@@ -914,6 +914,47 @@ export async function postToChat(s: Store, bot: string, text: string, at: string
   return msg
 }
 
+/** Records that the user has seen a bot's chat up to `at`; kept apart from the thread so it never races a reply. */
+export async function markSeen(s: Store, bot: string, at: string): Promise<void> {
+  const seen = await s.readJson<Record<string, string>>(s.path('seen.json'), {})
+  seen[bot] = at
+  await s.writeJson(s.path('seen.json'), seen)
+}
+
+/** Bot messages and pending proposals in each chat the user hasn't seen yet. */
+export async function unreadCounts(s: Store, bots: string[]): Promise<Record<string, number>> {
+  const seen = await s.readJson<Record<string, string>>(s.path('seen.json'), {})
+  const out: Record<string, number> = {}
+  for (const slug of bots) {
+    const since = seen[slug] ?? ''
+    out[slug] = (await readChat(s, slug)).messages.filter(m => m.role === 'bot' && m.at > since).length
+  }
+  return out
+}
+
+/** Applies or discards a pending proposal in a bot's chat and notes the outcome there; undefined when it is no longer waiting. */
+export async function decideProposal(s: Store, bot: string, msgId: string, apply: boolean, at: string): Promise<ChatThread | undefined> {
+  const thread = await readChat(s, bot)
+  const msg = thread.messages.find(m => m.id === msgId)
+  if (!msg?.proposal || msg.proposal.state !== 'pending') return undefined
+  if (apply) {
+    try {
+      msg.proposal.outcome = await applyProposal(s, msg.proposal, at)
+      msg.proposal.state = 'applied'
+    } catch (err) {
+      msg.proposal.outcome = (err as Error).message
+      msg.proposal.state = 'failed'
+    }
+  } else {
+    msg.proposal.state = 'discarded'
+    msg.proposal.outcome = 'Discarded.'
+  }
+  const verb = msg.proposal.state === 'applied' ? 'Applied' : msg.proposal.state === 'failed' ? 'Could not apply' : 'Discarded'
+  thread.messages.push({ id: newId('m', Date.parse(at)), role: 'system', text: `${verb}: ${msg.proposal.outcome}`, at })
+  await saveChat(s, thread)
+  return thread
+}
+
 /** The user's messages the bot has not replied to yet. */
 export function unanswered(thread: ChatThread): ChatMessage[] {
   return thread.messages.filter(m => m.role === 'you' && !m.answered)
